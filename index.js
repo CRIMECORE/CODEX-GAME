@@ -2358,10 +2358,35 @@ if (process.env.NODE_ENV !== 'test') {
 async function gracefulShutdown(signal) {
   console.log(`Received ${signal}, saving state...`);
   try {
-    if (typeof saveData === 'function') {
-      await saveData();
-    } else {
-      console.warn('saveData is not defined, skipping DB save');
+    // Prepare current in-memory state snapshot
+    const snapshot = {
+      players: typeof players !== 'undefined' ? players : {},
+      clans: typeof clans !== 'undefined' ? clans : {},
+      clanBattles: typeof clanBattles !== 'undefined' ? clanBattles : [],
+      clanInvites: typeof clanInvites !== 'undefined' ? clanInvites : {}
+    };
+
+    // Try to persist to MySQL first
+    try {
+      await dbQuery(
+        `INSERT INTO bot_state (id, state, updated_at)
+         VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = CURRENT_TIMESTAMP`,
+        [1, JSON.stringify(snapshot)]
+      );
+      console.log('State persisted to MySQL.');
+    } catch (dbErr) {
+      console.error('Failed to persist to MySQL during shutdown:', dbErr);
+    }
+
+    // Also write a local backup (best-effort)
+    try {
+      if (typeof fs !== 'undefined' && typeof DATA_FILE !== 'undefined') {
+        await fs.promises.writeFile(DATA_FILE, JSON.stringify(snapshot, null, 2));
+        console.log('Local backup written to', DATA_FILE);
+      }
+    } catch (fileErr) {
+      console.error('Failed to write local backup during shutdown:', fileErr);
     }
   } catch (err) {
     console.error('Error while saving data during shutdown:', err);
