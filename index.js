@@ -87,31 +87,30 @@ async function generateInventoryImage(player) {
 let bot; // глобальная переменная для TelegramBot
 
 // --- saveData определена выше process.on ---
+
+let saveTimeout = null;
+let savePending = false;
 async function saveData() {
-  if (global.saving) {
-    global.saveAgain = true;
-    return;
-  }
-  global.saving = true;
-  try {
-    global.data.players = global.players;
-    global.data.clans = global.clans;
-    global.data.clanBattles = global.clanBattles;
-    global.data.clanInvites = global.clanInvites;
-    await pool.execute(
-      `INSERT INTO bot_state (id, state, updated_at)
-       VALUES (1, ?, NOW())
-       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
-      [JSON.stringify(global.data)]
-    );
-  } catch (e) {
-    console.error("Ошибка записи в MySQL:", e);
-  }
-  global.saving = false;
-  if (global.saveAgain) {
-    global.saveAgain = false;
-    saveData();
-  }
+  if (savePending) return;
+  savePending = true;
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(async () => {
+    savePending = false;
+    try {
+      data.players = players;
+      data.clans = clans;
+      data.clanBattles = clanBattles;
+      data.clanInvites = clanInvites;
+      await pool.execute(
+        `INSERT INTO bot_state (id, state, updated_at)
+         VALUES (1, ?, NOW())
+         ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
+        [JSON.stringify(data)]
+      );
+    } catch (e) {
+      if (process.env.NODE_ENV !== 'production') console.error("Ошибка записи в MySQL:", e);
+    }
+  }, 2000); // сохранять не чаще, чем раз в 2 секунды
 }
 
 process.on('uncaughtException', (err) => {
@@ -251,7 +250,7 @@ function ensurePlayer(user) {
       huntCooldownWarned: false
     };
     players[key] = p;
-    saveData();
+  saveData();
   } else {
     const newUsername = user.username || `id${user.id}`;
     if (p.username !== newUsername) p.username = newUsername;
@@ -965,7 +964,7 @@ bot.onText(/\/acceptclan(?:@\w+)?(?:\s+(.+))?/i, (msg, match) => {
   if (!invite) return bot.sendMessage(chatId, "У вас нет действующего приглашения в клан.");
   if (invite.expires <= Date.now()) {
     delete clanInvites[myKey];
-    saveData();
+  saveData();
     return bot.sendMessage(chatId, "Приглашение просрочено.");
   }
   const clan = clans[String(invite.clanId)];
@@ -1282,7 +1281,7 @@ if (dataCb === "play") {
     // Отправляем новое меню и сохраняем его message_id
     const sent = await bot.sendMessage(chatId, "🏠 Главное меню", { reply_markup: mainMenuKeyboard() });
     player.lastMainMenuMsgId = sent.message_id;
-    saveData();
+  saveData();
     return;
 }
 
@@ -1906,7 +1905,7 @@ bot.onText(/\/clanleave/, (msg) => {
   }
   player.clanId = null;
   removeClanQueueEntry(cid, player.id);
-  saveData();
+          saveData();
   bot.sendMessage(chatId, "Вы вышли из клана.");
 });
 
@@ -1983,7 +1982,7 @@ function startPvpFight(challenger, opponent, chatId) {
         bot.sendMessage(chatId, "Ошибка состояния PvP. Бой прерван.");
         if (challenger.pvp) delete challenger.pvp;
         if (opponent.pvp) delete opponent.pvp;
-        saveData();
+          saveData();
         return;
       }
 
@@ -1995,7 +1994,7 @@ function startPvpFight(challenger, opponent, chatId) {
         await bot.sendMessage(chatId, `🏆 @${b.username} победил в PvP!`);
         delete challenger.pvp;
         delete opponent.pvp;
-        saveData();
+            saveData();
         return;
       }
       if (bState.myHp <= 0) {
@@ -2004,7 +2003,7 @@ function startPvpFight(challenger, opponent, chatId) {
         await bot.sendMessage(chatId, `🏆 @${a.username} победил в PvP!`);
         delete challenger.pvp;
         delete opponent.pvp;
-        saveData();
+            saveData();
         return;
       }
 
