@@ -1,0 +1,201 @@
+{
+  "players": {
+    "236145163": {
+      "id": 236145163,
+      "username": "j4panisick",
+      "hp": 100,
+      "maxHp": 100,
+      "infection": 0,
+      "clanId": null,
+      "inventory": {
+        "armor": null,
+        "helmet": null,
+        "weapon": null,
+        "mutation": null,
+        "extra": null
+      },
+      "monster": null,
+      "monsterStun": 0,
+      "damageBoostTurns": 0,
+      "damageReductionTurns": 0,
+      "radiationBoost": false,
+      "firstAttack": false,
+      "lastHunt": 0,
+      "pendingDrop": null,
+      "pvpWins": 0,
+      "pvpLosses": 0
+    },
+    "899535755": {
+      "username": "id899535755",
+      "hp": 700,
+      "infection": 3880,
+      "inventory": {
+        "helmet": {
+          "name": "Велосипедный шлем",
+          "block": 5,
+          "chance": 15,
+          "kind": "helmet"
+        },
+        "mutation": {
+          "name": "Момо",
+          "crit": 0.2,
+          "chance": 15,
+          "kind": "mutation"
+        },
+        "weapon": {
+          "name": "Перочинный нож",
+          "dmg": 15,
+          "chance": 15
+        },
+        "armor": {
+          "name": "Бронежилет хим. вещества",
+          "hp": 600,
+          "chance": 1.5,
+          "kind": "armor"
+        },
+        "extra": {
+          "name": "Слеповая граната",
+          "effect": "stun2",
+          "chance": 20,
+          "turns": 2,
+          "kind": "extra"
+        }
+      },
+      "monster": {
+        "id": 826,
+        "hp": 215,
+        "maxHp": 257,
+        "dmg": 19,
+        "type": "medium"
+      },
+      "firstAttack": true,
+      "lastHunt": 1755138463561,
+      "monsterStun": 1,
+      "maxHp": 700,
+      "pendingDrop": null,
+      "damageReductionTurns": 0,
+      "id": 899535755,
+      "pvpWins": 7,
+      "pvpLosses": 0,
+      "clanId": 2,
+      "lastMainMenuMsgId": 970,
+      "lastGiftTime": 1755129005516,
+      "huntCooldownWarned": false,
+      "currentBattleMsgId": 971
+    },
+    "7026777373": {
+      "username": "SLAVEcall",
+      "hp": 140,
+      "infection": 2888,
+      "inventory": {
+        "helmet": {
+          "name": "Кожаный шлем",
+          "block": 5,
+          "chance": 15,
+          "kind": "helmet"
+        },
+        "mutation": {
+          "name": "Бог",
+          "crit": 0.5,
+          "chance": 2,
+          "kind": "mutation"
+        },
+        "weapon": {
+          "name": "Кухонный нож",
+          "dmg": 15,
+          "chance": 13,
+          "kind": "weapon"
+        },
+        "armor": {
+          "name": "Бронежилет из жертв",
+          "hp": 40,
+          "chance": 20,
+          "kind": "armor"
+        },
+        "extra": null
+      },
+      "monster": null,
+      "lastHunt": 1755137350260,
+      "firstAttack": true,
+      "maxHp": 140,
+      "monsterStun": 0,
+      "pendingDrop": null,
+      "pvp": {
+        "opponentId": 6423549519,
+        "myHp": 577,
+        "oppHp": 100,
+        "myStun": 0,
+        "oppStun": 0,
+        "myDamageBoostTurns": 0,
+        "oppDamageBoostTurns": 0,
+        "myDamageReductionTurns": 0,
+        "oppDamageReductionTurns": 0,
+        "myRadiationBoost": false,
+        "oppRadiationBoost": false,
+        "turn": "me"
+      },
+      "id": 7026777373,
+      "lastMainMenuMsgId": 943,
+      "pvpWins": 0,
+      "pvpLosses": 0,
+      "clanId": null,
+      "huntCooldownWarned": false,
+      "lastGiftTime": 1755137412361
+    },
+    "6423549519": {
+      "id": 6423549519,
+      "username": "id6423549519",
+      "hp": 100,
+      "maxHp": 120,
+      "infection": 100,
+      "inventory": {
+        "armor": {
+          "name": "Бронежилет химзащита",
+          "hp": 20,
+          "chance": 25,
+          "kind": "armor"
+        },
+        "helmet": null,
+        "weapon": {
+          "name": "Кухонный нож",
+          "dmg": 15,
+          "chance": 13,
+          "kind": "weapon"
+        },
+        "mutation": null,
+        "extra": {
+          "name": "Граната",
+          "effect": "damage100",
+          "chance": 15,
+          "kind": "extra"
+        }
+      },
+      "monster": null,
+      "monsterStun": 0,
+      "damageBoostTurns": 0,
+      "damageReductionTurns": 0,
+      "radiationBoost": false,
+      "firstAttack": true,
+      "lastHunt": 1754872074448,
+      "pendingDrop": null,
+      "pvpLosses": 8,
+      "pvpWins": 2,
+      "clanId": 2,
+      "lastMainMenuMsgId": 858,
+      "lastGiftTime": 1755129462856
+    }
+  },
+  "clans": {
+    "2": {
+      "id": 2,
+      "name": "пятки",
+      "points": 0,
+      "members": [
+        6423549519,
+        899535755
+      ]
+    }
+  },
+  "clanBattles": [],
+  "clanInvites": {}
+}
