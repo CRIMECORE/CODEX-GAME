@@ -1857,11 +1857,11 @@ bot.on("pre_checkout_query", async (q) => {
 });
 
 bot.on("message", async (msg) => {
-  try {
-    if (msg.from.id !== ALLOWED_USER_ID) {
+  if (msg.from.id !== ALLOWED_USER_ID) {
     bot.sendMessage(msg.chat.id, "🛠 Бот находится на технических работах. Планируем закончить в течение часа. Доступ временно закрыт.");
     return;
     }
+  try {
     if (!msg.successful_payment) return;
     const payload = msg.successful_payment.invoice_payload;
     const chatId = msg.chat.id;
