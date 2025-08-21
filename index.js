@@ -159,7 +159,6 @@ async function startBot() {
 
 
 // data file path (works with "type": "module")
-const DATA_FILE = path.join(__dirname, "data.json");
 
 let data = { players: {}, clans: {}, clanBattles: [] }; // canonical structure
 let players = data.players;
@@ -553,31 +552,16 @@ async function saveData() {
     data.clans = clans;
     data.clanBattles = clanBattles;
     data.clanInvites = clanInvites;
-    // MySQL: use JSON column and ON DUPLICATE KEY UPDATE
     const payload = JSON.stringify(data);
-    try {
-      await dbQuery(
-        `INSERT INTO bot_state (id, state, updated_at)
-         VALUES (?, ? , CURRENT_TIMESTAMP)
-         ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = CURRENT_TIMESTAMP`,
-        [1, payload]
-      );
-      console.log('saveData: state written to MySQL.');
-    } catch (dbErr) {
-      console.error('saveData: error writing to MySQL:', dbErr && dbErr.stack ? dbErr.stack : dbErr);
-    }
+    await dbQuery(
+      `INSERT INTO bot_state (id, state, updated_at)
+       VALUES (?, ? , CURRENT_TIMESTAMP)
+       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = CURRENT_TIMESTAMP`,
+      [1, payload]
+    );
+    console.log('saveData: state written to MySQL.');
   } catch (e) {
-    console.error("Ошибка во время подготовки/записи state:", e && e.stack ? e.stack : e);
-  }
-  // Always try to persist a local backup so progress isn't lost if the
-  // database is unavailable. Failures here shouldn't crash the bot.
-  try {
-    if (typeof fs !== 'undefined' && typeof DATA_FILE !== 'undefined') {
-      await fs.promises.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
-      console.log('saveData: local backup written to', DATA_FILE);
-    }
-  } catch (e) {
-    console.error("Ошибка записи локального файла:", e && e.stack ? e.stack : e);
+    console.error('saveData: error writing to MySQL:', e && e.stack ? e.stack : e);
   }
   saving = false;
   if (saveAgain) {
@@ -2372,29 +2356,13 @@ async function gracefulShutdown(signal) {
       clanBattles: typeof clanBattles !== 'undefined' ? clanBattles : [],
       clanInvites: typeof clanInvites !== 'undefined' ? clanInvites : {}
     };
-
-    // Try to persist to MySQL first
-    try {
-      await dbQuery(
-        `INSERT INTO bot_state (id, state, updated_at)
-         VALUES (?, ?, CURRENT_TIMESTAMP)
-         ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = CURRENT_TIMESTAMP`,
-        [1, JSON.stringify(snapshot)]
-      );
-      console.log('State persisted to MySQL.');
-    } catch (dbErr) {
-      console.error('Failed to persist to MySQL during shutdown:', dbErr);
-    }
-
-    // Also write a local backup (best-effort)
-    try {
-      if (typeof fs !== 'undefined' && typeof DATA_FILE !== 'undefined') {
-        await fs.promises.writeFile(DATA_FILE, JSON.stringify(snapshot, null, 2));
-        console.log('Local backup written to', DATA_FILE);
-      }
-    } catch (fileErr) {
-      console.error('Failed to write local backup during shutdown:', fileErr);
-    }
+    await dbQuery(
+      `INSERT INTO bot_state (id, state, updated_at)
+       VALUES (?, ?, CURRENT_TIMESTAMP)
+       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = CURRENT_TIMESTAMP`,
+      [1, JSON.stringify(snapshot)]
+    );
+    console.log('State persisted to MySQL.');
   } catch (err) {
     console.error('Error while saving data during shutdown:', err);
   }
