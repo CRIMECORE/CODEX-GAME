@@ -1247,7 +1247,7 @@ bot.onText(/\/clan_battle/, async (msg) => {
 
 // ---- Callback handlers (PvE, inventory, leaderboard and pvp_request button, clans menu) ----
 
-  const __af = Object.create(null);
+  // ...existing code...
 bot.on("callback_query", async (q) => {
   const dataCb = q.data;
   const user = q.from;
@@ -1966,7 +1966,7 @@ bot.onText(/\/clanbattle/, async (msg) => {
 
 // ---- Callback handlers (PvE, inventory, leaderboard and pvp_request button, clans menu) ----
 
-  const __af = Object.create(null);
+  // ...existing code...
 bot.on("callback_query", async (q) => {
   const dataCb = q.data;
   const user = q.from;
@@ -2685,7 +2685,7 @@ bot.onText(/\/clanbattle/, async (msg) => {
 
 // ---- Callback handlers (PvE, inventory, leaderboard and pvp_request button, clans menu) ----
 
-  const __af = Object.create(null);
+  // ...existing code...
 bot.on("callback_query", async (q) => {
   const dataCb = q.data;
   const user = q.from;
