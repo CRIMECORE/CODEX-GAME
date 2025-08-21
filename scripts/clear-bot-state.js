@@ -1,4 +1,4 @@
-import { clearBotStateTable } from '../index.js';
+import { clearBotStateTable } from './index.js';
 
 (async () => {
   await clearBotStateTable();
