@@ -12,7 +12,6 @@ import http from 'http';
 
 import pool from './lib/db.js';
 
-// --- Очистка таблицы bot_state (MySQL) ---
 export async function clearBotStateTable() {
   await pool.execute('DELETE FROM bot_state');
   console.log('Таблица bot_state очищена.');
@@ -185,7 +184,6 @@ let saveAgain = false;
 
   // await initPostgres();
   await loadData();
-  await clearBotStateTable();
   console.log("Бот запущен ✅");
 
   bot = new TelegramBot(TOKEN, { polling: true });
