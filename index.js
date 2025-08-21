@@ -583,7 +583,8 @@ function mainMenuKeyboard() {
       [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
       [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
       [{ text: "⚔️ PvP", callback_data: "pvp_request" }],
-      [{ text: "🏰 Кланы", callback_data: "clans_menu" }]
+      [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
+      [{ text: "📢 Канал", url: "https://t.me/crimecorebotgame" }]
     ]
   };
 }
