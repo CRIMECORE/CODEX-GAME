@@ -2337,15 +2337,6 @@ if (process.env.NODE_ENV !== 'test') {
 
 // DATABASE_URL должен быть задан в переменных окружения Render
 
-
-async function initPostgres() {
-  await pool.query(`CREATE TABLE IF NOT EXISTS bot_state (
-    id INTEGER PRIMARY KEY,
-    state JSONB NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT now()
-  )`);
-}
-
 if (process.env.NODE_ENV !== 'test') {
   const PORT = process.env.PORT || 3000;
   http.createServer((req, res) => {
