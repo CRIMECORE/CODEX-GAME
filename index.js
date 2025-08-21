@@ -217,6 +217,7 @@ function ensurePlayer(user) {
   const key = String(user.id);
   let p = players[key];
   if (!p) {
+    // Only create if not present
     p = {
       id: user.id,
       username: user.username || `id${user.id}`,
@@ -242,12 +243,13 @@ function ensurePlayer(user) {
     players[key] = p;
     saveData();
   } else {
+    // Only update username/name if changed, do not touch other fields
     const newUsername = user.username || `id${user.id}`;
     if (p.username !== newUsername) p.username = newUsername;
     const newName = user.first_name || newUsername;
     if (p.name !== newName) p.name = newName;
   }
-  return p;
+  return players[key];
 }
 
 function cleanDatabase() {
