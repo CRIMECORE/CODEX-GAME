@@ -207,6 +207,8 @@ let saveAgain = false;
 
   bot = new TelegramBot(TOKEN, { polling: true });
 
+  const ALLOWED_USER_ID = 7897895019;
+
   // === Патч безопасного редактирования сообщений (добавлено) ===
   try {
     const _editText = bot.editMessageText.bind(bot);
@@ -1293,6 +1295,11 @@ bot.on("callback_query", async (q) => {
 
   await bot.answerCallbackQuery(q.id).catch(()=>{});
 
+  if (q.from.id !== ALLOWED_USER_ID) {
+    bot.answerCallbackQuery(q.id, { text: "Бот на технических работах.", show_alert: true }).catch(()=>{});
+    return;
+  }
+
   // === Ограничение кнопок в любых группах (group/supergroup): разрешены только PvP и Кланы ===
   try {
     const chat = q.message && q.message.chat ? q.message.chat : null;
@@ -1851,6 +1858,10 @@ bot.on("pre_checkout_query", async (q) => {
 
 bot.on("message", async (msg) => {
   try {
+    if (msg.from.id !== ALLOWED_USER_ID) {
+    bot.sendMessage(msg.chat.id, "🛠 Бот находится на технических работах. Планируем закончить в течение часа. Доступ временно закрыт.");
+    return;
+    }
     if (!msg.successful_payment) return;
     const payload = msg.successful_payment.invoice_payload;
     const chatId = msg.chat.id;
