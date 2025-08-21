@@ -724,7 +724,7 @@ function computeAttackForPvp(attacker, defender, attackerPvpState, defenderPvpSt
   }
 
   // weapon + base roll
-  const weaponName = attacker.inventory && attacker.inventory.weapon ? attacker.inventory.weapon.name : "(кулаки)";
+  const weaponName = attacker.inventory && attacker.inventory.weapon ? attacker.inventory.weapon.name : "кулаки";
   const weaponBonus = attacker.inventory && attacker.inventory.weapon ? (attacker.inventory.weapon.dmg || 0) : 0;
   const baseRoll = Math.floor(Math.random() * 30) + 10;
   let damage = baseRoll + weaponBonus;
@@ -1511,7 +1511,7 @@ if (dataCb === "attack") {
     // normal attack
     player.firstAttack = true;
     const weaponBonus = player.inventory.weapon ? (player.inventory.weapon.dmg || 0) : 0;
-    const weaponName = player.inventory.weapon ? player.inventory.weapon.name : "(кулаки)";
+    const weaponName = player.inventory.weapon ? player.inventory.weapon.name : "кулаки";
     const baseRoll = Math.floor(Math.random() * 30) + 10;
     let damage = baseRoll + weaponBonus;
     const events = [];
