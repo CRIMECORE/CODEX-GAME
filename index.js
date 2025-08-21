@@ -1827,6 +1827,10 @@ if (dataCb === "attack") {
 
 // /play
 bot.onText(/\/play/, (msg) => {
+  if (msg.from.id !== ALLOWED_USER_ID) {
+    bot.sendMessage(msg.chat.id, "🛠 Бот находится на технических работах. Планируем закончить в течение часа. Доступ временно закрыт.");
+    return;
+    }
   const player = ensurePlayer(msg.from);
   if (!player) return bot.sendMessage(msg.chat.id, "Ошибка регистрации. Попробуйте /start.");
   applyArmorHelmetBonuses(player);
@@ -1835,6 +1839,10 @@ bot.onText(/\/play/, (msg) => {
 
 // /start
 bot.onText(/\/start/, (msg) => {
+  if (msg.from.id !== ALLOWED_USER_ID) {
+    bot.sendMessage(msg.chat.id, "🛠 Бот находится на технических работах. Планируем закончить в течение часа. Доступ временно закрыт.");
+    return;
+    }
   const player = ensurePlayer(msg.from);
   if (!player) return bot.sendMessage(msg.chat.id, "Ошибка регистрации. Попробуйте снова.");
   applyArmorHelmetBonuses(player);
