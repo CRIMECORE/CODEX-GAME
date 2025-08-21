@@ -1500,24 +1500,28 @@ if (dataCb === "hunt") {
         quest: "https://i.postimg.cc/J4Gn5PrK/IMG-6680.jpg"
     };
 
-    if (Math.random() < 0.2) {
-        const ev = storyEvents[Math.floor(Math.random() * storyEvents.length)];
-        player.currentEvent = ev;
-        saveData();
-        const sent = await bot.sendPhoto(chatId, monsterImages.quest, {
-            caption: `📜 *${ev.title}*\n\n${ev.text}`,
-            parse_mode: "Markdown",
-            reply_markup: { 
-                inline_keyboard: [
-                    [{ text: "🔥 Действовать", callback_data: "event_action" }],
-                    [{ text: "⬅️ Назад", callback_data: "play" }]
-                ] 
-            }
-        });
-        player.currentBattleMsgId = sent.message_id;
-        saveData();
-        return;
-    }
+  let userCooldown = PVP_REQUEST_TTL;
+  if (player.id === 7897895019 || player.id === 7026777373) {
+    userCooldown = 1000;
+  }
+  if (Math.random() < 0.2) {
+    const ev = storyEvents[Math.floor(Math.random() * storyEvents.length)];
+    player.currentEvent = ev;
+    saveData();
+    const sent = await bot.sendPhoto(chatId, monsterImages.quest, {
+      caption: `📜 *${ev.title}*\n\n${ev.text}`,
+      parse_mode: "Markdown",
+      reply_markup: { 
+        inline_keyboard: [
+          [{ text: "🔥 Действовать", callback_data: "event_action" }],
+          [{ text: "⬅️ Назад", callback_data: "play" }]
+        ] 
+      }
+    });
+    player.currentBattleMsgId = sent.message_id;
+    saveData();
+    return;
+  }
 
     const img = monsterImages[player.monster.type] || monsterImages.weak;
     const sent = await bot.sendPhoto(chatId, img, {
