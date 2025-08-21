@@ -553,6 +553,15 @@ async function saveData() {
   } catch (e) {
     console.error("Ошибка записи в PostgreSQL:", e);
   }
+  // Always try to persist a local backup so progress isn't lost if the
+  // database is unavailable. Failures here shouldn't crash the bot.
+  try {
+    if (typeof fs !== 'undefined' && typeof DATA_FILE !== 'undefined') {
+      await fs.promises.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
+    }
+  } catch (e) {
+    console.error("Ошибка записи локального файла:", e);
+  }
 }
 
 async function loadData() {
