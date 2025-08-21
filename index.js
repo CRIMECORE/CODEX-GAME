@@ -86,9 +86,6 @@ async function generateInventoryImage(player) {
 }
 
 
-
-await clearBotStateTable();
-
 let bot; // глобальная переменная для TelegramBot
 
 // --- saveData определена выше process.on ---
@@ -189,7 +186,7 @@ let saveAgain = false;
 
   // await initPostgres();
   await loadData();
-  cleanDatabase();
+  await clearBotStateTable();
   console.log("Бот запущен ✅");
 
   bot = new TelegramBot(TOKEN, { polling: true });
