@@ -117,12 +117,30 @@ async function saveData() {
 
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err);
-    restartBot();
+    // Критические ошибки: рестарт только если это не TelegramError, ETELEGRAM, ECONNRESET, 'message is not modified'
+    const msg = String(err && err.message || err);
+    if (
+      !msg.includes('TelegramError') &&
+      !msg.includes('ETELEGRAM') &&
+      !msg.includes('ECONNRESET') &&
+      !msg.includes('message is not modified')
+    ) {
+        restartBot();
+    }
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection:', reason);
-    restartBot();
+    // Критические ошибки: рестарт только если это не TelegramError, ETELEGRAM, ECONNRESET, 'message is not modified'
+    const msg = String(reason && reason.message || reason);
+    if (
+      !msg.includes('TelegramError') &&
+      !msg.includes('ETELEGRAM') &&
+      !msg.includes('ECONNRESET') &&
+      !msg.includes('message is not modified')
+    ) {
+        restartBot();
+    }
 });
 
 function restartBot() {
