@@ -533,6 +533,8 @@ const storyEvents = [
     badEffect: { type: "lose_points", amount: 10 }
   },
 // Универсальная обработка badEffect для storyEvents
+];
+
 function applyBadEffect(player, badEffect) {
   if (!player || !badEffect) return;
   if (badEffect.type === "lose_points") {
@@ -543,7 +545,6 @@ function applyBadEffect(player, badEffect) {
     }
   }
 }
-];
 
 // ---- Utilities ----
 function pickByChance(arr) {
