@@ -173,6 +173,7 @@ function lootMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
+      [{ text: "➕ Бесплатный подарок", callback_data: "invite_friend" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
