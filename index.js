@@ -535,10 +535,16 @@ async function giveItemToPlayer(chatId, player, item, sourceText = "") {
 
 // ---- Data load/save and migration ----
 
-
-
+// Prevent concurrent writes under heavy load
+let saving = false;
+let saveAgain = false;
 
 async function saveData() {
+  if (saving) {
+    saveAgain = true;
+    return;
+  }
+  saving = true;
   try {
     data.players = players;
     data.clans = clans;
@@ -561,6 +567,11 @@ async function saveData() {
     }
   } catch (e) {
     console.error("Ошибка записи локального файла:", e);
+  }
+  saving = false;
+  if (saveAgain) {
+    saveAgain = false;
+    saveData();
   }
 }
 
@@ -1435,13 +1446,13 @@ if (dataCb === "hunt") {
     const now = Date.now();
 
     // Проверка кулдауна с антиспамом сообщения
-    if (now - (player.lastHunt || 0) < 10000) { 
+    if (now - (player.lastHunt || 0) < 30000) {
         if (!player.huntCooldownWarned) {
-            await bot.sendMessage(chatId, "⏳ Подожди 10 секунд перед следующей охотой!");
+            await bot.sendMessage(chatId, "⏳ Подожди 30 секунд перед следующей охотой!");
             player.huntCooldownWarned = true;
             saveData();
         }
-        return; 
+        return;
     } else {
         player.huntCooldownWarned = false;
     }
