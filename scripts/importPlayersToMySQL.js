@@ -13,12 +13,19 @@ async function main() {
   const players = parsed.players || {};
   const clans = parsed.clans || {};
 
+  // Fallback to docker-compose credentials if env vars are not provided
+  const dbHost = process.env.MYSQL_HOST || '127.0.0.1';
+  const dbPort = process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : 3306;
+  const dbUser = process.env.MYSQL_USER && process.env.MYSQL_USER.length ? process.env.MYSQL_USER : 'devuser';
+  const dbPassword = process.env.MYSQL_PASSWORD && process.env.MYSQL_PASSWORD.length ? process.env.MYSQL_PASSWORD : 'devpass';
+  const dbName = process.env.MYSQL_DATABASE || 'codex_game';
+
   const pool = await mysql.createPool({
-    host: process.env.MYSQL_HOST || '127.0.0.1',
-    user: process.env.MYSQL_USER || 'root',
-    password: process.env.MYSQL_PASSWORD || '',
-    database: process.env.MYSQL_DATABASE || 'codex_game',
-    port: process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : 3306,
+    host: dbHost,
+    user: dbUser,
+    password: dbPassword,
+    database: dbName,
+    port: dbPort,
     connectionLimit: 5
   });
 
