@@ -148,7 +148,7 @@ let clanBattles = data.clanBattles;
 let saving = false;
 let saveAgain = false;
 
-  await initPostgres();
+  // await initPostgres();
   await loadData();
   cleanDatabase();
   console.log("Бот запущен ✅");
@@ -2336,6 +2336,9 @@ if (process.env.NODE_ENV !== 'test') {
 // === PostgreSQL (Render) ===
 
 // DATABASE_URL должен быть задан в переменных окружения Render
+
+
+
 
 if (process.env.NODE_ENV !== 'test') {
   const PORT = process.env.PORT || 3000;
