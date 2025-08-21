@@ -37,7 +37,7 @@ function loadItemImages() {
   if (fs.existsSync(filePath)) {
     const lines = fs.readFileSync(filePath, 'utf-8').split(/\r?\n/);
     for (const line of lines) {
-      const [name, url] = line.split(/\s*-\s*/);
+      const [name, url] = line.split(/\s*: \s*/);
       if (name && url) {
         map[normalizeName(name)] = url.trim();
       }
