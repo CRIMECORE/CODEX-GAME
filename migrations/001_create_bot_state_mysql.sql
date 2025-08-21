@@ -12,7 +12,6 @@ CREATE TABLE IF NOT EXISTS players (
   monsterStun INT,
   damageBoostTurns INT,
   damageReductionTurns INT,
-  damageReductionTurns INT,
   radiationBoost BOOLEAN,
   firstAttack BOOLEAN,
   lastHunt BIGINT,
