@@ -554,23 +554,30 @@ async function saveData() {
     data.clanBattles = clanBattles;
     data.clanInvites = clanInvites;
     // MySQL: use JSON column and ON DUPLICATE KEY UPDATE
-    await dbQuery(
-      `INSERT INTO bot_state (id, state, updated_at)
-       VALUES (?, ? , CURRENT_TIMESTAMP)
-       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = CURRENT_TIMESTAMP`,
-      [1, JSON.stringify(data)]
-    );
+    const payload = JSON.stringify(data);
+    try {
+      await dbQuery(
+        `INSERT INTO bot_state (id, state, updated_at)
+         VALUES (?, ? , CURRENT_TIMESTAMP)
+         ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = CURRENT_TIMESTAMP`,
+        [1, payload]
+      );
+      console.log('saveData: state written to MySQL.');
+    } catch (dbErr) {
+      console.error('saveData: error writing to MySQL:', dbErr && dbErr.stack ? dbErr.stack : dbErr);
+    }
   } catch (e) {
-    console.error("Ошибка записи в MySQL:", e);
+    console.error("Ошибка во время подготовки/записи state:", e && e.stack ? e.stack : e);
   }
   // Always try to persist a local backup so progress isn't lost if the
   // database is unavailable. Failures here shouldn't crash the bot.
   try {
     if (typeof fs !== 'undefined' && typeof DATA_FILE !== 'undefined') {
       await fs.promises.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
+      console.log('saveData: local backup written to', DATA_FILE);
     }
   } catch (e) {
-    console.error("Ошибка записи локального файла:", e);
+    console.error("Ошибка записи локального файла:", e && e.stack ? e.stack : e);
   }
   saving = false;
   if (saveAgain) {
