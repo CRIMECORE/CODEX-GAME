@@ -1297,11 +1297,6 @@ bot.on("callback_query", async (q) => {
 
   await bot.answerCallbackQuery(q.id).catch(()=>{});
 
-  if (q.from.id !== ALLOWED_USER_ID) {
-    bot.answerCallbackQuery(q.id, { text: "Бот на технических работах.", show_alert: true }).catch(()=>{});
-    return;
-  }
-
   // === Ограничение кнопок в любых группах (group/supergroup): разрешены только PvP и Кланы ===
   try {
     const chat = q.message && q.message.chat ? q.message.chat : null;
@@ -1829,10 +1824,6 @@ if (dataCb === "attack") {
 
 // /play
 bot.onText(/\/play/, (msg) => {
-  if (msg.from.id !== ALLOWED_USER_ID) {
-    bot.sendMessage(msg.chat.id, "🛠 Бот находится на технических работах. Планируем закончить до 22:00 МСК. Доступ временно закрыт.");
-    return;
-    }
   const player = ensurePlayer(msg.from);
   if (!player) return bot.sendMessage(msg.chat.id, "Ошибка регистрации. Попробуйте /start.");
   applyArmorHelmetBonuses(player);
@@ -1841,10 +1832,6 @@ bot.onText(/\/play/, (msg) => {
 
 // /start
 bot.onText(/\/start/, (msg) => {
-  if (msg.from.id !== ALLOWED_USER_ID) {
-    bot.sendMessage(msg.chat.id, "🛠 Бот находится на технических работах. Планируем закончить до 22:00 МСК. Доступ временно закрыт.");
-    return;
-    }
   const player = ensurePlayer(msg.from);
   if (!player) return bot.sendMessage(msg.chat.id, "Ошибка регистрации. Попробуйте снова.");
   applyArmorHelmetBonuses(player);
