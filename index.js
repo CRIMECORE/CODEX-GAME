@@ -485,11 +485,27 @@ async function loadData() {
     console.log("PostgreSQL: состояние загружено.");
   } catch (e) {
     console.error("Ошибка чтения из PostgreSQL:", e);
-    data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
-    players = data.players;
-    clans = data.clans;
-    clanBattles = data.clanBattles;
-    clanInvites = data.clanInvites;
+    try {
+      if (fs.existsSync(DATA_FILE)) {
+        const raw = fs.readFileSync(DATA_FILE, "utf-8");
+        const parsed = JSON.parse(raw);
+        data = {
+          players: parsed.players || {},
+          clans: parsed.clans || {},
+          clanBattles: parsed.clanBattles || [],
+          clanInvites: parsed.clanInvites || {}
+        };
+        players = data.players;
+        clans = data.clans;
+        clanBattles = data.clanBattles;
+        clanInvites = data.clanInvites;
+        console.log("Использовано состояние из локального data.json.");
+      } else {
+        console.warn("Локальный файл состояния не найден, используются текущие данные в памяти.");
+      }
+    } catch (fileErr) {
+      console.error("Не удалось загрузить локальный файл состояния:", fileErr);
+    }
   }
 }
 
@@ -552,11 +568,27 @@ async function loadData() {
     console.log("PostgreSQL: состояние загружено.");
   } catch (e) {
     console.error("Ошибка чтения из PostgreSQL:", e);
-    data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
-    players = data.players;
-    clans = data.clans;
-    clanBattles = data.clanBattles;
-    clanInvites = data.clanInvites;
+    try {
+      if (fs.existsSync(DATA_FILE)) {
+        const raw = fs.readFileSync(DATA_FILE, "utf-8");
+        const parsed = JSON.parse(raw);
+        data = {
+          players: parsed.players || {},
+          clans: parsed.clans || {},
+          clanBattles: parsed.clanBattles || [],
+          clanInvites: parsed.clanInvites || {}
+        };
+        players = data.players;
+        clans = data.clans;
+        clanBattles = data.clanBattles;
+        clanInvites = data.clanInvites;
+        console.log("Использовано состояние из локального data.json.");
+      } else {
+        console.warn("Локальный файл состояния не найден, используются текущие данные в памяти.");
+      }
+    } catch (fileErr) {
+      console.error("Не удалось загрузить локальный файл состояния:", fileErr);
+    }
   }
 }
 
@@ -1257,7 +1289,7 @@ if (dataCb === "free_gift") {
                         [{ text: "✅ Проверить подписку", callback_data: "free_gift" }],
                         [{ text: "⬅️ Назад", callback_data: "loot_menu" }]
                     ]
-                });
+                }});
             return;
         }
     } catch (err) {
