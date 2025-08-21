@@ -123,6 +123,28 @@ function restartBot() {
     }, 3000);
 }
 
+function mainMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🩸 Выйти на охоту", callback_data: "hunt" }],
+      [{ text: "🪦 Лутать тело 📦", callback_data: "loot_menu" }],
+      [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
+      [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
+      [{ text: "⚔️ PvP", callback_data: "pvp_request" }],
+      [{ text: "🏰 Кланы", callback_data: "clans_menu" }]
+    ]
+  };
+}
+
+function lootMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
+      [{ text: "⬅️ Назад", callback_data: "play" }]
+    ]
+  };
+}
+
 function startBot() {
     if (typeof bot !== 'undefined' && bot) {
         bot.removeAllListeners();
@@ -1843,7 +1865,9 @@ async function main() {
   startBot();
 }
 
-main().catch(console.error);
+if (process.env.NODE_ENV !== 'test') {
+  main().catch(console.error);
+}
 
 
 
@@ -2281,16 +2305,20 @@ bot.onText(/\/acceptbattle/, (msg) => {
 });
 }
 
-startBot();
+if (process.env.NODE_ENV !== 'test') {
+  startBot();
+}
 
 
 // === Anti-idle пинг ===
 // Используем встроенный fetch в Node.js 18+
-setInterval(() => {
+if (process.env.NODE_ENV !== 'test') {
+  setInterval(() => {
     fetch(process.env.RENDER_EXTERNAL_URL || "https://crimecore-bot.onrender.com")
-        .then(() => console.log("Пинг OK"))
-        .catch(err => console.error("Пинг не удался:", err));
-}, 5 * 60 * 1000);
+      .then(() => console.log("Пинг OK"))
+      .catch(err => console.error("Пинг не удался:", err));
+  }, 5 * 60 * 1000);
+}
 
 
 // === Мини HTTP-сервер для Render ===
@@ -2307,13 +2335,19 @@ async function initPostgres() {
   )`);
 }
 
-const PORT = process.env.PORT || 3000;
-http.createServer((req, res) => {
+if (process.env.NODE_ENV !== 'test') {
+  const PORT = process.env.PORT || 3000;
+  http.createServer((req, res) => {
     res.writeHead(200, {"Content-Type": "text/plain"});
     res.end("Bot is running\n");
-}).listen(PORT, () => console.log(`HTTP server running on port ${PORT}`));
+  }).listen(PORT, () => console.log(`HTTP server running on port ${PORT}`));
+}
 
 
 // Аккуратное сохранение при завершении процесса
-process.on('SIGTERM', () => { saveData().finally(() => process.exit(0)); });
-process.on('SIGINT', () => { saveData().finally(() => process.exit(0)); });
+if (process.env.NODE_ENV !== 'test') {
+  process.on('SIGTERM', () => { saveData().finally(() => process.exit(0)); });
+  process.on('SIGINT', () => { saveData().finally(() => process.exit(0)); });
+}
+
+export { mainMenuKeyboard, lootMenuKeyboard };
