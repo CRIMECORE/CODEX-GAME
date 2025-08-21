@@ -690,12 +690,12 @@ function spawnMonster() {
   const roll = Math.random() * 100;
   let hp, dmg, type;
   if (roll < 80) {
-    hp = Math.floor(Math.random() * 81) + 20;
-    dmg = Math.floor(Math.random() * 16) + 5;
+    hp = Math.floor(Math.random() * 81) + 50;
+    dmg = Math.floor(Math.random() * 16) + 11;
     type = "weak";
   } else if (roll < 96) {
-    hp = Math.floor(Math.random() * 200) + 101;
-    dmg = Math.floor(Math.random() * 36) + 15;
+    hp = Math.floor(Math.random() * 200) + 201;
+    dmg = Math.floor(Math.random() * 36) + 51;
     type = "medium";
   } else {
     hp = Math.floor(Math.random() * 200) + 701;
