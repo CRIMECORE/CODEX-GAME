@@ -174,23 +174,29 @@ let clanBattles = data.clanBattles;
   // === Патч безопасного редактирования сообщений (добавлено) ===
   try {
     const _edit = bot.editMessageText.bind(bot);
-    bot.editMessageText = async function(text, opts = {}) {
+    bot.editMessageText = async function (text, opts = {}) {
       try {
         if (!opts || typeof opts.chat_id === "undefined" || typeof opts.message_id === "undefined") {
           throw new Error("missing chat_id/message_id");
         }
         return await _edit(text, opts);
       } catch (e) {
+        const chatId = (opts && (opts.chat_id || opts.chatId)) || (this && this.chat && this.chat.id);
+        if (typeof chatId === "undefined") return;
+        const sendOpts = { reply_markup: opts && opts.reply_markup };
+        if (opts && opts.parse_mode) sendOpts.parse_mode = opts.parse_mode;
         try {
-          const chatId = (opts && (opts.chat_id || opts.chatId)) || (this && this.chat && this.chat.id);
-          if (typeof chatId !== "undefined") {
-            return await bot.sendMessage(chatId, text, { reply_markup: opts && opts.reply_markup, parse_mode: opts && opts.parse_mode });
-          }
+          return await bot.sendMessage(chatId, text, sendOpts);
         } catch (e2) {
-          console.error("safe edit fallback error:", e2.message);
+          try {
+            delete sendOpts.parse_mode;
+            return await bot.sendMessage(chatId, text, sendOpts);
+          } catch (e3) {
+            console.error("safe edit fallback error:", e3.message);
+          }
         }
       }
-    }
+    };
   } catch (e) {
     console.error("patch editMessageText failed:", e.message);
   }
