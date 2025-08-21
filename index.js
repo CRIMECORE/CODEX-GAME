@@ -1406,9 +1406,9 @@ if (dataCb === "hunt") {
     const now = Date.now();
 
     // Проверка кулдауна с антиспамом сообщения
-    if (now - (player.lastHunt || 0) < 1000) {
+    if (now - (player.lastHunt || 0) < 15000) {
         if (!player.huntCooldownWarned) {
-            await bot.sendMessage(chatId, "⏳ Подожди 30 секунд перед следующей охотой!");
+            await bot.sendMessage(chatId, "⏳ Пожалуйста, подожди 15 секунд перед следующей охотой");
             player.huntCooldownWarned = true;
             saveData();
         }
