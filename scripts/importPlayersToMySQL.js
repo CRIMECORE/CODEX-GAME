@@ -29,9 +29,21 @@ async function main() {
     connectionLimit: 5
   });
 
-  // Ensure schema exists
+  // Ensure schema exists. mysql2 often has multipleStatements disabled by default,
+  // so split the file into individual statements and execute them one by one.
   const schemaSql = fs.readFileSync(path.join(process.cwd(), 'migrations', 'create_mysql_schema.sql'), 'utf-8');
-  await pool.query(schemaSql);
+  const statements = schemaSql
+    .split(/;\s*$/m) // split by semicolon at line end
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && !s.startsWith('--'));
+
+  for (const stmt of statements) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      console.warn('Schema statement failed (continuing):', err.message);
+    }
+  }
 
   // Insert clans
   for (const [cid, c] of Object.entries(clans)) {
