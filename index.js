@@ -1734,7 +1734,9 @@ if (dataCb === "attack") {
   if (dataCb === "leaderboard") {
     const sorted = Object.values(players).sort((a,b) => (b.infection||0) - (a.infection||0));
     let text = "🏆 Таблица лидеров:\n\n";
-    sorted.slice(0,10).forEach((p,i) => text += `${i+1}. ${p.username} — ${p.infection||0}☣️ (PvP: ${p.pvpWins||0}/${p.pvpLosses||0})\n`);
+    sorted.slice(0,10).forEach((p,i) =>
+      text += `${i+1}. ${escMd(p.username)} — ${p.infection||0}☣️ (PvP: ${p.pvpWins||0}/${p.pvpLosses||0})\n`
+    );
     const rank = sorted.findIndex(p => p.id === player.id) + 1;
     text += `\nТвой уровень: ${player.infection}\nТвоя позиция: ${rank>0 ? rank : "—"} / ${sorted.length}`;
     await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
@@ -2151,10 +2153,12 @@ bot.onText(/\/leaderboard/, (msg) => {
   if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
   const sorted = Object.values(players).sort((a,b) => (b.infection||0) - (a.infection||0));
   let text = "🏆 Таблица лидеров:\n\n";
-  sorted.slice(0,10).forEach((p,i) => text += `${i+1}. ${p.username} — ${p.infection||0}☣️ (PvP: ${p.pvpWins||0}/${p.pvpLosses||0})\n`);
+  sorted.slice(0,10).forEach((p,i) =>
+    text += `${i+1}. ${escMd(p.username)} — ${p.infection||0}☣️ (PvP: ${p.pvpWins||0}/${p.pvpLosses||0})\n`
+  );
   const rank = sorted.findIndex(p => p.id === player.id) + 1;
   text += `\nТвой уровень: ${player.infection}\nТвоя позиция: ${rank>0 ? rank : "—"} / ${sorted.length}`;
-  bot.sendMessage(chatId, text);
+  bot.sendMessage(chatId, text, { parse_mode: "Markdown" });
 });
 
 
