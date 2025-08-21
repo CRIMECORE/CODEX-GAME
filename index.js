@@ -467,61 +467,82 @@ const storyEvents = [
     text: "Ты слышишь тихий женский голос, зовущий на помощь из подземного перехода.",
     good: "Ты спас девушку — она благодарит тебя и передаёт небольшой подарок.",
     bad: "Это оказалась бракованная аниме-девочка — она напала на тебя, но ты успел сбежать.",
+    badEffect: { type: "lose_points", amount: 50 }
   },
   {
     title: "Визитка с розой",
     text: "На тротуаре лежит визитка с золотой розой и адресом.",
     good: "Адрес привёл к тайнику с ценным оружием.",
     bad: "Адрес оказался ловушкой вербовщиков — пришлось срочно убегать.",
+    badEffect: { type: "lose_item", slot: "weapon" }
   },
   {
     title: "Запах духов",
     text: "В переулке пахнет сладкими духами, но никого не видно.",
     good: "Девушка пряталась от охотников и подарила тебе редкую вещь.",
     bad: "Монстр, маскирующийся под девушку, внезапно напал — но ты убежал.",
+    badEffect: { type: "lose_item", slot: "armor" }
   },
   {
     title: "Серебряный фургон",
     text: "Мимо проезжает фургон с затемнёнными окнами, слышны женские крики.",
     good: "Ты успел заблокировать путь и спасти девушку.",
     bad: "Это была охрана лаборатории — ты едва ушёл живым.",
+    badEffect: { type: "lose_points", amount: 100 }
   },
   {
     title: "Стеклянная капсула",
     text: "У стены стоит треснувшая капсула, внутри — полусознанная девушка.",
     good: "Ты помог ей выбраться, она вручила необычный предмет.",
     bad: "Внутри был мутант, но ты успел скрыться.",
+    badEffect: { type: "lose_item", slot: "helmet" }
   },
   {
     title: "Старый дневник",
     text: "На лавочке лежит дневник с записями о похищениях.",
     good: "Записи вывели тебя к тайнику с ценным предметом.",
     bad: "Это была приманка — охотники чуть не поймали тебя.",
+    badEffect: { type: "lose_points", amount: 30 }
   },
   {
     title: "Шёпот за спиной",
     text: "Кто-то тихо шепчет твоё имя.",
     good: "Это была выжившая девушка, которая поделилась с тобой находкой.",
     bad: "Это были галлюцинации от газа — ты едва выбрался.",
+    badEffect: { type: "lose_item", slot: "mutation" }
   },
   {
     title: "Разбитое зеркало",
     text: "В подвале — комната с разбитыми зеркалами и запахом крови.",
     good: "Ты нашёл в щели шлем.",
     bad: "На тебя напала отражённая тень, но ты сбежал.",
+    badEffect: { type: "lose_points", amount: 20 }
   },
   {
     title: "Красная метка",
     text: "Кто-то мелом нарисовал красную метку на стене.",
     good: "Это знак выживших — внутри тайник с гранатами.",
     bad: "Метка привлекла охотников, пришлось уходить.",
+    badEffect: { type: "lose_item", slot: "extra" }
   },
   {
     title: "Вечеринка с отборами",
     text: "В клубе проходит вечеринка с 'кастингом' девушек.",
     good: "Ты сорвал отбор и спас одну из них.",
     bad: "Тебя узнали и выгнали.",
+    badEffect: { type: "lose_points", amount: 10 }
   },
+// Универсальная обработка badEffect для storyEvents
+function applyBadEffect(player, badEffect) {
+  if (!player || !badEffect) return;
+  if (badEffect.type === "lose_points") {
+    player.infection = Math.max(0, (player.infection || 0) - (badEffect.amount || 0));
+  } else if (badEffect.type === "lose_item" && badEffect.slot) {
+    if (player.inventory && player.inventory[badEffect.slot]) {
+      player.inventory[badEffect.slot] = null;
+    }
+  }
+}
 ];
 
 // ---- Utilities ----
@@ -664,7 +685,6 @@ async function loadData() {
   }
 }
 
-
 // ---- Monsters (PvE) ----
 function spawnMonster() {
   const roll = Math.random() * 100;
@@ -678,8 +698,8 @@ function spawnMonster() {
     dmg = Math.floor(Math.random() * 36) + 15;
     type = "medium";
   } else {
-    hp = Math.floor(Math.random() * 200) + 301;
-    dmg = Math.floor(Math.random() * 51) + 30;
+    hp = Math.floor(Math.random() * 200) + 701;
+    dmg = Math.floor(Math.random() * 51) + 301;
     type = "fat";
   }
   return { id: Math.floor(Math.random() * 999) + 1, hp, maxHp: hp, dmg, type };
