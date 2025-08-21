@@ -1167,6 +1167,7 @@ async function startClanBattle(clanAId, clanBId, chatId) {
     setTimeout(processRound, 800);
   
 }
+
 // ---- Chat handlers / commands ----
 
 // /clan_create <name>
@@ -1963,377 +1964,897 @@ bot.onText(/\/clanbattle/, async (msg) => {
   tryStartClanBattleCountdown(chatId);
 });
 
+// ---- Callback handlers (PvE, inventory, leaderboard and pvp_request button, clans menu) ----
 
-// --- Text-command wrappers and PvP accept/duel system ---
+  const __af = Object.create(null);
+bot.on("callback_query", async (q) => {
+  const dataCb = q.data;
+  const user = q.from;
+  const chatId = q.message.chat.id;
+  const messageId = q.message.message_id;
 
-// Helper: find a pvp request by various identifiers
-function findPvpRequestByIdentifier(identifier) {
-  if (!identifier) return null;
-  const id = String(identifier).trim();
-  if (pvpRequests[id]) return pvpRequests[id];
-  if (pvpRequests['@' + id]) return pvpRequests['@' + id];
-  // try numeric id
-  if (/^\d+$/.test(id) && pvpRequests[id]) return pvpRequests[id];
-  // fallback: search values by username or challengerId
-  for (const k of Object.keys(pvpRequests)) {
-    const r = pvpRequests[k];
-    if (!r) continue;
-    if (String(r.challengerId) === id) return r;
-    if (r.username && String(r.username).toLowerCase() === id.toLowerCase()) return r;
-    if (('@' + String(r.username)).toLowerCase() === id.toLowerCase()) return r;
+  await bot.answerCallbackQuery(q.id).catch(()=>{});
+
+  // === Ограничение кнопок в любых группах (group/supergroup): разрешены только PvP и Кланы ===
+  try {
+    const chat = q.message && q.message.chat ? q.message.chat : null;
+    const chatType = chat && chat.type ? chat.type : null;
+    const isGroupType = chatType === "group" || chatType === "supergroup";
+    const allowedInGroup = new Set(["pvp_request", "clans_menu"]);
+    if (isGroupType && !allowedInGroup.has(dataCb)) {
+      const chatIdCurrent = chat.id;
+      const warnText = "Эти функции доступны только в личном сообщении бота, нажми на мою аватарку и играй!";
+      await bot.answerCallbackQuery(q.id, { show_alert: true, text: warnText }).catch(()=>{});
+      await bot.sendMessage(chatIdCurrent, warnText).catch(()=>{});
+      return;
+    }
+  } catch (e) {
+    console.error("Group gating error:", e);
   }
-  return null;
+  // === /Ограничение кнопок ===
+    let player = ensurePlayer(user);
+// --- Обработчики для кнопок главного меню: PvP и Кланы ---
+if (dataCb === "pvp_request") {
+  // Поведение как при /pvp_request
+  const keyById = String(user.id);
+  const reqObj = { challengerId: user.id, username: user.username || null, chatId, ts: Date.now() };
+  pvpRequests[keyById] = reqObj;
+  if (user.username) {
+    pvpRequests[`@${user.username}`] = reqObj;
+    pvpRequests[user.username] = reqObj;
+  }
+  // Обновляем сообщение или отправляем новое
+  await editOrSend(chatId, messageId, `🏹 @${user.username || `id${user.id}`} ищет соперника! Чтобы принять — /pvp @${user.username || user.id}\nЗаявка действует ${Math.floor(PVP_REQUEST_TTL/1000)} секунд.`);
+  return;
 }
 
-function clearPvpRequestForPlayer(player) {
-  if (!player) return;
-  const keys = [String(player.id)];
-  if (player.username) {
-    keys.push(player.username, '@' + player.username);
-  }
-  keys.forEach(k => { if (pvpRequests[k]) delete pvpRequests[k]; });
+if (dataCb === "clans_menu") {
+  // Показываем краткое меню по кланам (аналог текста + подсказки по /clan_* командам)
+  const text = `🏰 Кланы — команды:
+- /clan_create <имя> — создать клан
+- /clan_leave — выйти из клана
+- /inviteclan @ник|id — пригласить в клан
+- /acceptclan — принять приглашение
+- /clan_top — топ кланов
+- /acceptbattle — принять заявку на клановую битву
+- /clan_battle — подать заявку на клановую битву
+Нажмите команду в чате или используйте текстовые команды.`;
+  await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+  return;
 }
 
-// Start a 1v1 PvP fight (automatic)
-function startPvpFight(challenger, opponent, chatId) {
-  if (!challenger || !opponent) {
-    if (chatId) bot.sendMessage(chatId, "Ошибка: участники не найдены.");
+// === Обработка кнопки "Назад" (главное меню) ===
+if (dataCb === "play") {
+    let player = ensurePlayer(user);
+
+    // Удаляем старое меню
+    if (player.lastMainMenuMsgId) {
+        await bot.deleteMessage(chatId, player.lastMainMenuMsgId).catch(() => {});
+    }
+
+    // Отправляем новое меню и сохраняем его message_id
+    const sent = await bot.sendMessage(chatId, "🏠 Главное меню", { reply_markup: mainMenuKeyboard() });
+    player.lastMainMenuMsgId = sent.message_id;
+  saveData();
     return;
-  }
-  // ensure pvp state initialized
-  if (!initPvpState(challenger, opponent)) {
-    bot.sendMessage(chatId, "Не удалось инициализировать PvP.");
+}
+
+// player уже инициализирован выше
+
+
+if (dataCb === "loot_menu") {
+    await editOrSend(chatId, messageId, "📦 Меню лута — выбери:", { reply_markup: lootMenuKeyboard() });
     return;
-  }
+}
 
-  bot.sendMessage(chatId, `⚔️ PvP: @${challenger.username} против @${opponent.username}. Бой начинается!`);
+if (dataCb === "free_gift") {
+    const now = Date.now();
+    const lastGiftTime = player.lastGiftTime || 0;
+    const COOLDOWN = 24 * 60 * 60 * 1000; // 24 часа
 
-  // turn: 'A' = challenger, 'B' = opponent
-  let turn = 'A';
-
-  async function processRound() {
+    // Проверяем подписку каждый раз при нажатии
     try {
-      const a = (turn === 'A') ? challenger : opponent;
-      const b = (turn === 'A') ? opponent : challenger;
-      const aState = a.pvp;
-      const bState = b.pvp;
-
-      // safety checks
-      if (!aState || !bState) {
-        bot.sendMessage(chatId, "Ошибка состояния PvP. Бой прерван.");
-        if (challenger.pvp) delete challenger.pvp;
-        if (opponent.pvp) delete opponent.pvp;
-          saveData();
+        const member = await bot.getChatMember(FREE_GIFT_CHANNEL, user.id);
+        const status = (member && member.status) ? member.status : "left";
+        if (status === "left" || status === "kicked") {
+            await editOrSend(chatId, messageId,
+                `❌ Вы не подписаны на канал ${FREE_GIFT_CHANNEL}. Подпишитесь и нажмите «Проверить подписку» снова.`,
+                { reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "📢 Открыть канал", url: `https://t.me/${String(FREE_GIFT_CHANNEL).replace(/^@/, "")}` }],
+                        [{ text: "✅ Проверить подписку", callback_data: "free_gift" }],
+                        [{ text: "⬅️ Назад", callback_data: "loot_menu" }]
+                    ]
+                }});
+            return;
+        }
+    } catch (err) {
+        console.error("Ошибка проверки подписки:", err);
+        await editOrSend(chatId, messageId,
+            `❌ Не удалось проверить подписку. Убедитесь, что канал ${FREE_GIFT_CHANNEL} существует и публичный.`,
+            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
         return;
-      }
+    }
 
-      // check if someone already dead
-      if (aState.myHp <= 0) {
-        // b wins
-        b.pvpWins = (b.pvpWins || 0) + 1;
-        a.pvpLosses = (a.pvpLosses || 0) + 1;
-        await bot.sendMessage(chatId, `🏆 @${b.username} победил в PvP!`);
-        delete challenger.pvp;
-        delete opponent.pvp;
+    // Проверка кулдауна (24 часа)
+    if (now - lastGiftTime < COOLDOWN) {
+        const timeLeft = COOLDOWN - (now - lastGiftTime);
+        const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+        const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+        await editOrSend(chatId, messageId,
+            `⌛ Вы уже забирали бесплатный подарок. Следующий можно получить через ${hours} ч ${minutes} мин.`,
+            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+        return;
+    }
+
+    // -------------------------
+    // Собираем пул предметов (всё из твоих массивов)
+    // -------------------------
+    const dropPool = [
+        ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
+        ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
+        ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
+        ...extraItems.map(it => ({ ...it, kind: "extra" })),
+        ...armorItems.map(it => ({ ...it, kind: "armor" }))
+    ];
+
+    // Гарантированное выпадение — используем pickByChance, если тот вернёт null — ставим случайный
+    let picked = pickByChance(dropPool);
+    if (!picked && dropPool.length > 0) picked = dropPool[Math.floor(Math.random() * dropPool.length)];
+
+    if (!picked) {
+        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+        return;
+    }
+
+    // Сохраняем время получения и отдаем предмет (используем существующую функцию giveItemToPlayer)
+    player.lastGiftTime = now;
+    // (не ставим gotFreeLoot — теперь подарок раз в 24 часа)
+    giveItemToPlayer(chatId, player, picked, "🎁 Бесплатный подарок за подписку (раз в 24 часа)");
+    saveData();
+
+    return;
+}
+
+if (dataCb === "basic_box") {
+    const title = "Базовая коробка удачи (100⭐)";
+    const description = "Одна коробка — один гарантированный предмет. Шансы аналогичны PvE.";
+    const payload = "loot_basic_100";
+    const startParam = "loot_basic";
+    const prices = [{ label: "Базовая коробка", amount: 10000 }]; // 100⭐ × 100
+    try {
+        await bot.sendInvoice(chatId, title, description, payload, "", startParam, "XTR", prices, {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+    } catch (err) {
+        console.error("sendInvoice error:", err);
+        await bot.sendMessage(chatId, "Не удалось создать счёт. Попробуйте позже или сообщите администратору бота.", {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+    }
+    return;
+}
+
+if (dataCb === "legend_box") {
+    const title = "Легендарная коробка удачи (599⭐)";
+    const description = "Легендарная коробка — выпадение только из спец. списка сильных предметов (равные шансы).";
+    const payload = "loot_legend_599";
+    const startParam = "loot_legend";
+    const prices = [{ label: "Легендарная коробка", amount: 59900 }];
+    try {
+        await bot.sendInvoice(chatId, title, description, payload, "", startParam, "XTR", prices, {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+    } catch (err) {
+        console.error("sendInvoice error:", err);
+        await bot.sendMessage(chatId, "Не удалось создать счёт. Попробуйте позже или сообщите администратору бота.", {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+    }
+    return;
+} // ← закрыли legend_box
+
+if (dataCb === "hunt") {
+    const now = Date.now();
+
+    // Проверка кулдауна с антиспамом сообщения
+    if (now - (player.lastHunt || 0) < 1000) {
+        if (!player.huntCooldownWarned) {
+            await bot.sendMessage(chatId, "⏳ Подожди 30 секунд перед следующей охотой!");
+            player.huntCooldownWarned = true;
             saveData();
+        }
         return;
-      }
-      if (bState.myHp <= 0) {
-        a.pvpWins = (a.pvpWins || 0) + 1;
-        b.pvpLosses = (b.pvpLosses || 0) + 1;
-        await bot.sendMessage(chatId, `🏆 @${a.username} победил в PvP!`);
-        delete challenger.pvp;
-        delete opponent.pvp;
-            saveData();
-        return;
-      }
+    } else {
+        player.huntCooldownWarned = false;
+    }
 
-      // stun handling
-      if (aState.myStun && aState.myStun > 0) {
-        aState.myStun--;
-        await bot.sendMessage(chatId, `⏱️ @${a.username} оглушён и пропускает ход (${aState.myStun} осталось).\nHP: @${challenger.username} ${Math.max(0, challenger.pvp.myHp)}/${challenger.maxHp} — @${opponent.username} ${Math.max(0, opponent.pvp.myHp)}/${opponent.maxHp}`);
-      } else {
-        const events = computeAttackForPvp(a, b, aState, bState);
-        await bot.sendMessage(chatId, `${events.join("\n")}\n\nHP: @${challenger.username} ${Math.max(0, challenger.pvp.myHp)}/${challenger.maxHp} — @${opponent.username} ${Math.max(0, opponent.pvp.myHp)}/${opponent.maxHp}`);
-      }
+    player.lastHunt = now;
+    player.monster = spawnMonster();
+    player.firstAttack = false;
+    player.monsterStun = 0;
+    player.pendingDrop = null;
+    applyArmorHelmetBonuses(player);
+    saveData();
 
-      // check death after attack
-      if (bState.myHp <= 0) {
-        a.pvpWins = (a.pvpWins || 0) + 1;
-        b.pvpLosses = (b.pvpLosses || 0) + 1;
-        await bot.sendMessage(chatId, `💀 @${b.username} пал в бою (от @${a.username}).`);
-        await bot.sendMessage(chatId, `🏆 Победитель: @${a.username} (+${PVP_POINT} очков)`);
-        // optional: award points/infection — here we just update wins/losses
-        delete challenger.pvp;
-        delete opponent.pvp;
+    const monsterImages = {
+        weak:  "https://i.postimg.cc/XqWfytS2/IMG-6677.jpg",
+        medium: "https://i.postimg.cc/VNyd6ncg/IMG-6678.jpg",
+        fat:   "https://i.postimg.cc/nz2z0W9S/IMG-6679.jpg",
+        quest: "https://i.postimg.cc/J4Gn5PrK/IMG-6680.jpg"
+    };
+
+    if (Math.random() < 0.2) {
+        const ev = storyEvents[Math.floor(Math.random() * storyEvents.length)];
+        player.currentEvent = ev;
+        saveData();
+        const sent = await bot.sendPhoto(chatId, monsterImages.quest, {
+            caption: `📜 *${ev.title}*\n\n${ev.text}`,
+            parse_mode: "Markdown",
+            reply_markup: { 
+                inline_keyboard: [
+                    [{ text: "🔥 Действовать", callback_data: "event_action" }],
+                    [{ text: "⬅️ Назад", callback_data: "play" }]
+                ] 
+            }
+        });
+        player.currentBattleMsgId = sent.message_id;
         saveData();
         return;
-      }
-
-      // switch turn
-      turn = (turn === 'A') ? 'B' : 'A';
-      saveData();
-      setTimeout(processRound, 1500);
-    } catch (e) {
-      console.error("startPvpFight error:", e);
-      try { bot.sendMessage(chatId, "Ошибка в PvP: " + String(e)); } catch {}
-      if (challenger.pvp) delete challenger.pvp;
-      if (opponent.pvp) delete opponent.pvp;
-      saveData();
     }
-  }
 
-  // first tick
-  setTimeout(processRound, 800);
+    const img = monsterImages[player.monster.type] || monsterImages.weak;
+    const sent = await bot.sendPhoto(chatId, img, {
+        caption: `🩸 Ты встретил Подопытного №${player.monster.id}\nHP: ${player.monster.hp}/${player.monster.maxHp}\nУрон: ${player.monster.dmg}`,
+        reply_markup: { 
+            inline_keyboard: [
+                [{ text: "⚔️ Атаковать", callback_data: "attack" }],
+                [{ text: "🏃 Убежать", callback_data: "run_before_start" }]
+            ] 
+        }
+    });
+    player.currentBattleMsgId = sent.message_id;
+    saveData();
+    return;
 }
 
-// /pvp [target] - without args: create a pvp request; with target: accept challenge by that target
-bot.onText(/\/pvp(?:\s+(.+))?/, async (msg, match) => {
-  const chatId = msg.chat.id;
-  const player = ensurePlayer(msg.from);
-  if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
-  const arg = match && match[1] ? String(match[1]).trim() : "";
-  if (!arg) {
-    // create request (same as pvp_request callback)
-    const keyById = String(player.id);
-    const reqObj = { challengerId: player.id, username: player.username || null, chatId, ts: Date.now() };
-    pvpRequests[keyById] = reqObj;
-    if (player.username) {
-      pvpRequests[`@${player.username}`] = reqObj;
-      pvpRequests[player.username] = reqObj;
+if (dataCb === "run_before_start") {
+    if (player.firstAttack) { 
+        await bot.answerCallbackQuery(q.id, { text: "Нельзя убежать, бой уже начался!", show_alert: true }).catch(()=>{}); 
+        return; 
     }
-    await bot.sendMessage(chatId, `🏹 @${player.username || `id${player.id}`} ищет соперника!\nЧтобы принять вызов, напишите: /pvp @${player.username || player.id}\nЗаявка действует ${Math.floor(PVP_REQUEST_TTL/1000)} секунд.`);
+    player.monster = null;
+    player.monsterStun = 0;
+    if (player.currentBattleMsgId) {
+        await bot.deleteMessage(chatId, player.currentBattleMsgId).catch(()=>{});
+        delete player.currentBattleMsgId;
+    }
+    saveData();
+    await bot.sendMessage(chatId, "🏃‍♂️ Ты убежал от Подопытного.", { reply_markup: mainMenuKeyboard() });
     return;
-  } else {
-    // accept
-    const targetIdent = arg.startsWith('@') ? arg.slice(1) : arg;
-    const req = findPvpRequestByIdentifier(targetIdent);
-    if (!req) return bot.sendMessage(chatId, "Заявка соперника не найдена или истекла. Убедитесь, что вы указали корректный ник/ID и что игрок подавал заявку (через /pvp).");
-    if (String(req.challengerId) === String(player.id)) return bot.sendMessage(chatId, "Нельзя принять собственную заявку.");
-    // check expiry
-    if (Date.now() - req.ts > PVP_REQUEST_TTL) {
-      clearPvpRequestForPlayer({ id: req.challengerId, username: req.username });
-      return bot.sendMessage(chatId, "Заявка истекла.");
+}
+
+if (dataCb === "attack") {
+    if (!player.monster) { 
+        await bot.answerCallbackQuery(q.id, { text: "Сначала выйди на охоту.", show_alert: true }).catch(()=>{}); 
+        return; 
     }
-    const challenger = players[String(req.challengerId)];
-    if (!challenger) return bot.sendMessage(chatId, "Не удалось найти игрока, подавшего заявку.");
-    if (challenger.pvp || player.pvp) return bot.sendMessage(chatId, "Один из игроков уже в PvP.");
-    // clear request keys
-    clearPvpRequestForPlayer(challenger);
-    // start fight
-    startPvpFight(challenger, player, chatId);
+
+    // chance extra
+    if (player.inventory.extra && Math.random() < 0.3) {
+        const extra = player.inventory.extra;
+        const events = [];
+        if (extra.effect === "stun2") { player.monsterStun = (extra.turns || 2); events.push(`🧨 Сработал предмет: ${escMd(extra.name)} — монстр оглушён на ${player.monsterStun} ход(ов).`); }
+        else if (extra.effect === "damage50") { player.monster.hp -= 50; events.push(`💥 Сработал предмет: ${escMd(extra.name)} — нанесено 50 урона монстру.`); }
+        else if (extra.effect === "damage100") { player.monster.hp -= 100; events.push(`💥 Сработал предмет: ${escMd(extra.name)} — нанесено 100 урона монстру.`); }
+        else if (extra.effect === "halfDamage1") { player.damageReductionTurns = (extra.turns || 1); events.push(`💪 Сработал предмет: ${escMd(extra.name)} — входящий урон делится на 2 на ${player.damageReductionTurns} ход(ов).`); }
+        else if (extra.effect === "doubleDamage1") { player.damageBoostTurns = (extra.turns || 1); events.push(`⚡ Сработал предмет: ${escMd(extra.name)} — твой урон x2 на ${player.damageBoostTurns} ход(ов).`); }
+        else if (extra.effect === "doubleInfection") { player.radiationBoost = true; events.push(`☣️ Сработал предмет: ${escMd(extra.name)} — следующая победа даст двойное заражение.`); }
+        applyArmorHelmetBonuses(player);
+        saveData();
+        await bot.editMessageCaption(`${events.join("\n")}`, {
+            chat_id: chatId,
+            message_id: player.currentBattleMsgId,
+            reply_markup: { inline_keyboard: [[{ text: "⚔️ Атаковать", callback_data: "attack" }]] }
+        });
+        return;
+    }
+
+    // normal attack
+    player.firstAttack = true;
+    const weaponBonus = player.inventory.weapon ? (player.inventory.weapon.dmg || 0) : 0;
+    const weaponName = player.inventory.weapon ? player.inventory.weapon.name : "(кулаки)";
+    const baseRoll = Math.floor(Math.random() * 30) + 10;
+    let damage = baseRoll + weaponBonus;
+    const events = [];
+
+    if (player.inventory.mutation && player.inventory.mutation.crit) {
+        if (Math.random() < player.inventory.mutation.crit) { 
+            damage *= 2; 
+            events.push(`💥 Критический удар! (${weaponName}) Урон удвоен до ${damage}.`); 
+        }
+    }
+    if (player.damageBoostTurns && player.damageBoostTurns > 0) { 
+        damage *= 2; 
+        player.damageBoostTurns--; 
+        events.push(`⚡ Бонус урона активирован (x2) на этот удар.`); 
+    }
+
+    player.monster.hp -= damage;
+    events.push(`⚔️ Ты нанёс ${damage} урона (${weaponName})!`);
+
+    if (player.monster.hp <= 0) {
+        let infGain = (player.monster.type === "medium") ? 35 : (player.monster.type === "fat" ? 60 : 20);
+        if (player.radiationBoost) { infGain *= 2; player.radiationBoost = false; }
+        player.infection += infGain;
+        player.pendingDrop = null;
+        const dropChance = (player.monster.type === "weak") ? 0.20 : (player.monster.type === "medium") ? 0.35 : 0.60;
+        if (Math.random() < dropChance) {
+            const dropPool = [
+              ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
+              ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
+              ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
+              ...extraItems.map(it => ({ ...it, kind: "extra" })),
+              ...armorItems.map(it => ({ ...it, kind: "armor" }))
+            ];
+            const picked = pickByChance(dropPool);
+            if (picked) player.pendingDrop = { ...picked };
+        }
+
+        applyArmorHelmetBonuses(player);
+        player.hp = player.maxHp;
+        player.monster = null;
+        player.monsterStun = 0;
+
+        if (player.currentBattleMsgId) {
+            await bot.deleteMessage(chatId, player.currentBattleMsgId).catch(()=>{});
+            delete player.currentBattleMsgId;
+        }
+
+        saveData();
+        let winText = `💀 Ты убил Подопытного и получил +${infGain} заражения☣️!\nТекущий уровень заражения: ${player.infection}`;
+        if (player.pendingDrop) {
+            winText += `\n\n🎁 Выпало: ${player.pendingDrop.name}\nЧто делать?`;
+            await bot.sendMessage(chatId, `${events.join("\n")}\n\n${winText}`, {
+                reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }],[{ text: "🗑️ Выбросить", callback_data: "discard_drop" }]] }
+            });
+        } else {
+            await bot.sendMessage(chatId, `${events.join("\n")}\n\n${winText}`, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+        }
+        return;
+    }
+
+    // monster attacks back
+    let monsterText = "";
+    if (player.monsterStun && player.monsterStun > 0) {
+        player.monsterStun--;
+        monsterText = `⚠️ Монстр оглушён и не атакует (${player.monsterStun} ходов осталось).`;
+    } else {
+        const helmetBlock = player.inventory.helmet ? (player.inventory.helmet.block || 0) : 0;
+        let incoming = player.monster.dmg;
+        if (player.damageReductionTurns && player.damageReductionTurns > 0) { 
+            incoming = Math.ceil(incoming / 2); 
+            player.damageReductionTurns--; 
+        }
+        const blocked = Math.ceil(incoming * (helmetBlock / 100));
+        incoming = Math.max(0, incoming - blocked);
+        player.hp -= incoming;
+        monsterText = `💥 Монстр ударил тебя на ${incoming} урона. (Шлем заблокировал ${blocked})`;
+
+        if (player.hp <= 0) {
+            const loss = Math.floor(Math.random() * 26) + 5;
+            player.infection = Math.max(0, player.infection - loss);
+            applyArmorHelmetBonuses(player);
+            player.hp = player.maxHp;
+            player.monster = null;
+            player.monsterStun = 0;
+
+            if (player.currentBattleMsgId) {
+                await bot.deleteMessage(chatId, player.currentBattleMsgId).catch(()=>{});
+                delete player.currentBattleMsgId;
+            }
+
+            saveData();
+            await bot.sendMessage(chatId, `${events.join("\n")}\n\n☠️ Ты умер и потерял ${loss} уровня заражения☣️. Твой уровень: ${player.infection}`, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+            return;
+        }
+    }
+
+    saveData();
+    await bot.editMessageCaption(
+        `${events.join("\n")}\n\nHP монстра: ${player.monster.hp}/${player.monster.maxHp}\n${monsterText}\n❤️ Твои HP: ${player.hp}`,
+        {
+            chat_id: chatId,
+            message_id: player.currentBattleMsgId,
+            reply_markup: { inline_keyboard: [[{ text: "⚔️ Атаковать", callback_data: "attack" }], ...(player.firstAttack ? [] : [[{ text: "🏃 Убежать", callback_data: "run_before_start" }]])] }
+        }
+    );
+    return;
+}
+
+
+  if (dataCb === "event_action") {
+    if (!player.currentEvent) {
+      await bot.answerCallbackQuery(q.id, { text: "Событие не найдено.", show_alert: true }).catch(()=>{});
+      return;
+    }
+    const ev = player.currentEvent;
+    delete player.currentEvent;
+
+    const infectionGain = Math.floor(Math.random() * 151) + 100; // 100–250
+    player.infection = (player.infection || 0) + infectionGain;
+
+    let text = `✅ ${ev.good}\\n\\n☣️ Ты получил ${infectionGain} заражения.`;
+
+    // 15% chance item
+    if (Math.random() < 0.15) {
+      const dropPool = [
+        ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
+        ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
+        ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
+        ...extraItems.map(it => ({ ...it, kind: "extra" })),
+        ...armorItems.map(it => ({ ...it, kind: "armor" }))
+      ];
+      const picked = pickByChance(dropPool);
+      if (picked) {
+        player.pendingDrop = { ...picked };
+        text += `\\n\\n🎁 Выпало: ${escMd(picked.name)}\\nЧто делать?`;
+        saveData();
+        await editOrSend(chatId, messageId, text, {
+          reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }], [{ text: "🗑️ Выбросить", callback_data: "discard_drop" }]] }
+        });
+        return;
+      }
+    }
+
+    saveData();
+    await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
     return;
   }
-});
 
-// /pvp_request (text alias)
-bot.onText(/\/pvp_request/, (msg) => {
-  const chatId = msg.chat.id;
-  const player = ensurePlayer(msg.from);
-  if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
-  const keyById = String(player.id);
-  const reqObj = { challengerId: player.id, username: player.username || null, chatId, ts: Date.now() };
-  pvpRequests[keyById] = reqObj;
-  if (player.username) {
-    pvpRequests[`@${player.username}`] = reqObj;
-    pvpRequests[player.username] = reqObj;
+  if (dataCb === "take_drop") {
+    if (!player.pendingDrop) { await bot.answerCallbackQuery(q.id, { text: "Нечего брать.", show_alert: true }).catch(()=>{}); return; }
+    const item = player.pendingDrop;
+    let slot = "extra";
+    if (item.kind === "weapon") slot = "weapon";
+    else if (item.kind === "helmet") slot = "helmet";
+    else if (item.kind === "armor") slot = "armor";
+    else if (item.kind === "mutation") slot = "mutation";
+    else if (item.kind === "extra") slot = "extra";
+
+    const prev = player.inventory[slot];
+    player.inventory[slot] = item;
+    player.pendingDrop = null;
+    applyArmorHelmetBonuses(player);
+    saveData();
+
+    if (prev) await editOrSend(chatId, messageId, `✅ Предмет заменён: ${escMd(prev.name)} → ${escMd(item.name)}`, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+    else await editOrSend(chatId, messageId, `✅ Вы взяли: ${escMd(item.name)}`, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+
+    return;
   }
-  bot.sendMessage(chatId, `🏹 @${player.username || `id${player.id}`} ищет соперника! Чтобы принять — /pvp @${player.username || player.id}`);
-});
 
-// /inventory (text command)
-bot.onText(/\/inventory/, async (msg) => {
-  const chatId = msg.chat.id;
-  const player = ensurePlayer(msg.from);
-  if (!player) return bot.sendMessage(chatId, "Ошибка: нет профиля");
+  if (dataCb === "discard_drop") {
+    player.pendingDrop = null;
+    saveData();
+    await editOrSend(chatId, messageId, `🗑️ Предмет выброшен.`, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+    return;
+  }
 
-  let clanName = player.clanId && clans[player.clanId] ? clans[player.clanId].name : "—";
-  let inv = player.inventory || {};
-  let text = `🎒 Инвентарь:
+  if (dataCb === "inventory") {
+    const chatId = q.message.chat.id;
+    const player = ensurePlayer(q.from);
+    let clanName = player.clanId && clans[player.clanId] ? clans[player.clanId].name : "—";
+    let inv = player.inventory || {};
+    let text = `🎒 Инвентарь:
 Клан: ${clanName}
-🪖 Шлем: ${inv.helmet?.name || "—"} (${inv.helmet?.block || "—"})
-🛡 Броня: ${inv.armor?.name || "—"} (${inv.armor?.hp || "—"})
-🔫 Оружие: ${inv.weapon?.name || "—"} (${inv.weapon?.dmg || "—"})
-🧬 Мутация: ${inv.mutation?.name || "—"} (${inv.mutation?.crit || "—"})
+🪖 Шлем: ${inv.helmet?.name || "—"} (${inv.helmet?.block !== undefined ? `блок ${inv.helmet.block}%` : "—"})
+🛡 Броня: ${inv.armor?.name || "—"} (${inv.armor?.hp !== undefined ? `HP +${inv.armor.hp}` : "—"})
+🔫 Оружие: ${inv.weapon?.name || "—"} (${inv.weapon?.dmg !== undefined ? `+${inv.weapon.dmg} урона` : "—"})
+🧬 Мутация: ${inv.mutation?.name || "—"} (${inv.mutation?.crit !== undefined ? `crit ${inv.mutation.crit}%` : "—"})
 📦 Доп: ${inv.extra?.name || "—"} (${inv.extra?.effect || "—"})
 
 ❤️ HP: ${player.hp}/${player.maxHp}
 ☣️ Заражение: ${player.infection || 0}
 🏆 PvP: ${player.pvpWins || 0} побед / ${player.pvpLosses || 0} поражений`;
 
-  const img = await generateInventoryImage(player);
-  const kb = { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] };
-  if (img) {
-    await bot.sendPhoto(chatId, img, { caption: text, parse_mode: "Markdown", reply_markup: kb });
-  } else {
-    await bot.sendMessage(chatId, text, { parse_mode: "Markdown", reply_markup: kb });
-  }
-
-});
-
-// /leaderboard (text command)
-bot.onText(/\/leaderboard/, (msg) => {
-  const chatId = msg.chat.id;
-  const player = ensurePlayer(msg.from);
-  if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
-  const sorted = Object.values(players).sort((a,b) => (b.infection||0) - (a.infection||0));
-  let text = "🏆 Таблица лидеров:\n\n";
-  sorted.slice(0,10).forEach((p,i) =>
-    text += `${i+1}. ${escMd(p.username)} — ${p.infection||0}☣️ (PvP: ${p.pvpWins||0}/${p.pvpLosses||0})\n`
-  );
-  const rank = sorted.findIndex(p => p.id === player.id) + 1;
-  text += `\nТвой уровень: ${player.infection}\nТвоя позиция: ${rank>0 ? rank : "—"} / ${sorted.length}`;
-  bot.sendMessage(chatId, text, { parse_mode: "Markdown" });
-});
-
-
-// === КОМАНДЫ ПРИГЛАШЕНИЯ В КЛАН ===
-
-
-// /acceptbattle — принять клановую битву
-bot.onText(/\/acceptbattle/, async (msg) => {
-  console.log("DEBUG: /acceptbattle command triggered");
-  const chatId = msg.chat.id;
-  const player = ensurePlayer(msg.from);
-  if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
-  if (!player.clanId || !clans[String(player.clanId)]) {
-    console.log("DEBUG: Player not in clan");
-    return bot.sendMessage(chatId, "Вы не состоите в клане.");
-  }
-  const clanId = String(player.clanId);
-  console.log("DEBUG: Player clanId =", clanId);
-
-  const pending = clanBattles.find(b => b.status === "pending" && String(b.opponentClanId) === clanId);
-  if (!pending) {
-    console.log("DEBUG: No pending battle for this clan");
-    return bot.sendMessage(chatId, "Нет активных заявок на битву против вашего клана.");
-  }
-  if (clanBattles.find(b => b.status === "active" && (String(b.clanId) === clanId || String(b.opponentClanId) === clanId))) {
-    console.log("DEBUG: Clan already in active battle");
-    return bot.sendMessage(chatId, "Ваш клан уже участвует в активной битве.");
-  }
-  if (pending.acceptedBy && String(pending.acceptedBy) !== clanId) {
-    console.log("DEBUG: Already accepted by another clan");
-    return bot.sendMessage(chatId, "Эта заявка уже принята другим кланом.");
-  }
-
-  pending.status = "active";
-  pending.acceptedBy = clanId;
-  saveData();
-  console.log("DEBUG: Battle accepted successfully");
-  bot.sendMessage(chatId, `✅ Клановая битва принята! Битва против клана "${clans[String(pending.clanId)].name}" начинается.`);
-  startClanBattle(pending.clanId, pending.opponentClanId, chatId);
-});
-
-// /inviteclan @username|id
-bot.onText(/\/inviteclan(?:@\w+)?\s+(.+)/i, (msg, match) => {
-  console.log("DEBUG /inviteclan triggered", match);
-  const chatId = msg.chat.id;
-  const inviter = ensurePlayer(msg.from);
-  if (!inviter || !inviter.clanId) return bot.sendMessage(chatId, "Вы должны быть в клане, чтобы приглашать.");
-  const raw = match[1] ? String(match[1]).trim() : "";
-  if (!raw) return bot.sendMessage(chatId, "Использование: /inviteclan @username или /inviteclan id");
-  let targetId = null;
-  // numeric id?
-  if (/^\d+$/.test(raw)) {
-    targetId = String(raw);
-  } else {
-    // try find player by username
-    const target = findPlayerByIdentifier(raw);
-    if (target && target.id) targetId = String(target.id);
-  }
-  if (!targetId) return bot.sendMessage(chatId, "Игрок не найден.");
-  const expires = Date.now() + 5 * 60 * 1000;
-  clanInvites[targetId] = { clanId: inviter.clanId, fromId: inviter.id, expires };
-  saveData();
-  console.log("DEBUG invite saved:", clanInvites);
-  bot.sendMessage(chatId, `✅ Приглашение сохранено: ${targetId} приглашён в клан "${clans[String(inviter.clanId)].name}".`);
-  // try to notify the user if they have started the bot
-  try {
-    const maybePlayer = players[String(targetId)];
-    if (maybePlayer && maybePlayer.id) {
-      bot.sendMessage(Number(targetId), `📩 Вас пригласил в клан "${clans[String(inviter.clanId)].name}" — @${inviter.username}. Примите командой /acceptclan @${inviter.username}`);
-    }
-  } catch (e) { console.error(e); }
-});
-
-// /acceptclan [@username|id]
-bot.onText(/\/acceptclan(?:@\w+)?(?:\s+(.+))?/i, (msg, match) => {
-  console.log("DEBUG /acceptclan triggered", match);
-  const chatId = msg.chat.id;
-  const player = ensurePlayer(msg.from);
-  if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
-  if (player.clanId) return bot.sendMessage(chatId, "Вы уже состоите в клане.");
-  const arg = match && match[1] ? String(match[1]).trim() : null;
-  const myKey = String(player.id);
-  let invite = clanInvites[myKey];
-  if (!invite && arg) {
-    // try find invite by matching inviter identifier (if user supplied inviter)
-    let inviterId = null;
-    if (/^\d+$/.test(arg)) inviterId = Number(arg);
-    else {
-      const inv = findPlayerByIdentifier(arg);
-      if (inv && inv.id) inviterId = Number(inv.id);
-    }
-    if (inviterId && clanInvites[myKey] && Number(clanInvites[myKey].fromId) === inviterId) invite = clanInvites[myKey];
-  }
-  if (!invite) return bot.sendMessage(chatId, "У вас нет действующего приглашения.");
-  if (invite.expires <= Date.now()) {
-    delete clanInvites[myKey];
-    saveData();
-    return bot.sendMessage(chatId, "Приглашение просрочено.");
-  }
-  const clan = clans[String(invite.clanId)];
-  if (!clan) return bot.sendMessage(chatId, "Клан уже не существует.");
-  if (!Array.isArray(clan.members)) clan.members = [];
-  // prevent double join
-  if (!clan.members.includes(player.id)) clan.members.push(player.id);
-  player.clanId = clan.id;
-  delete clanInvites[myKey];
-  saveData();
-  console.log("DEBUG accept complete:", clans[String(clan.id)]);
-  bot.sendMessage(chatId, `✅ Вы вступили в клан "${escMd(clan.name)}".`);
-});
-
-
-
-// ====== Упрощённое лобби клановых боёв ======
-
-let clanBattleLobby = [];
-let clanBattleActive = false;
-let clanBattleTimer = null;
-
-bot.onText(/\/clan_battle/, (msg) => {
-    const user = ensurePlayer(msg.from);
-    if (!user.clanId) return bot.sendMessage(msg.chat.id, "❌ Вы должны состоять в клане.");
-    if (clanBattleActive) return bot.sendMessage(msg.chat.id, "⚔️ Бой уже идёт.");
-    if (clanBattleLobby.length === 0) {
-        clanBattleLobby.push(user.id);
-        bot.sendMessage(msg.chat.id, `🏰 Лобби боя открыто!\n${user.username} (${data.clans[user.clanId]?.name || "Без клана"}) присоединился.\nИспользуйте /acceptbattle для вступления.`);
+    const img = await generateInventoryImage(player);
+    const kb = { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] };
+    if (img) {
+      await bot.sendPhoto(chatId, img, { caption: text, parse_mode: "Markdown", reply_markup: kb });
     } else {
-        bot.sendMessage(msg.chat.id, "⏳ Лобби уже открыто, присоединяйтесь командой /acceptbattle.");
+      await bot.sendMessage(chatId, text, { parse_mode: "Markdown", reply_markup: kb });
     }
+
+    return;
+  }
+
+  if (dataCb === "leaderboard") {
+    const sorted = Object.values(players).sort((a,b) => (b.infection||0) - (a.infection||0));
+    let text = "🏆 Таблица лидеров:\n\n";
+    sorted.slice(0,10).forEach((p,i) =>
+      text += `${i+1}. ${escMd(p.username)} — ${p.infection||0}☣️ (PvP: ${p.pvpWins||0}/${p.pvpLosses||0})\n`
+    );
+    const rank = sorted.findIndex(p => p.id === player.id) + 1;
+    text += `\nТвой уровень: ${player.infection}\nТвоя позиция: ${rank>0 ? rank : "—"} / ${sorted.length}`;
+    await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+    return;
+  }
 });
 
-bot.onText(/\/acceptbattle/, (msg) => {
-    const user = ensurePlayer(msg.from);
-    if (!user.clanId) return bot.sendMessage(msg.chat.id, "❌ Вы должны состоять в клане.");
-    if (clanBattleActive) return bot.sendMessage(msg.chat.id, "⚔️ Бой уже идёт.");
-    if (clanBattleLobby.includes(user.id)) return bot.sendMessage(msg.chat.id, "Вы уже в лобби.");
-    clanBattleLobby.push(user.id);
-    bot.sendMessage(msg.chat.id, `➕ ${user.username} (${data.clans[user.clanId]?.name || "Без клана"}) присоединился к лобби.`);
+// /play
+bot.onText(/\/play/, (msg) => {
+  const player = ensurePlayer(msg.from);
+  if (!player) return bot.sendMessage(msg.chat.id, "Ошибка регистрации. Попробуйте /start.");
+  applyArmorHelmetBonuses(player);
+  editOrSend(msg.chat.id, null, `Выберите действие:`, { reply_markup: mainMenuKeyboard() });
+});
 
-    const clansInLobby = {};
-    clanBattleLobby.forEach(pid => {
-        const pl = players[pid];
-        if (pl && pl.clanId) {
-            clansInLobby[pl.clanId] = (clansInLobby[pl.clanId] || 0) + 1;
+// /start
+bot.onText(/\/start/, (msg) => {
+  const player = ensurePlayer(msg.from);
+  if (!player) return bot.sendMessage(msg.chat.id, "Ошибка регистрации. Попробуйте снова.");
+  applyArmorHelmetBonuses(player);
+  const inv = player.inventory;
+  const armorLine = inv.armor ? `${inv.armor.name} (+${inv.armor.hp} HP)` : "—";
+  const weaponLine = inv.weapon ? `${inv.weapon.name} (+${inv.weapon.dmg} dmg)` : "—";
+  const helmetLine = inv.helmet ? `${inv.helmet.name} (блок ${inv.helmet.block}%)` : "—";
+  const mutLine = inv.mutation ? `${inv.mutation.name} (crit ${Math.round((inv.mutation.crit||0)*100)}%)` : "—";
+  bot.sendMessage(msg.chat.id,
+    `Привет, @${player.username}!\n❤️ HP: ${player.hp}/${player.maxHp}\n🛡 Броня: ${armorLine}\n🔫 Оружие: ${weaponLine}\n🪖 Шлем: ${helmetLine}\n🧬 Мутация: ${mutLine}`,
+    { reply_markup: mainMenuKeyboard() });
+});
+
+bot.on("pre_checkout_query", async (q) => {
+  try {
+    await bot.answerPreCheckoutQuery(q.id, true);
+  } catch (e) {
+    console.error("pre_checkout error:", e);
+  }
+});
+
+bot.on("message", async (msg) => {
+  try {
+    if (!msg.successful_payment) return;
+    const payload = msg.successful_payment.invoice_payload;
+    const chatId = msg.chat.id;
+    const user = msg.from;
+    const player = ensurePlayer(user);
+    if (!player) return;
+
+    if (payload === "loot_basic_100") {
+      const dropPool = [
+        ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
+        ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
+        ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
+        ...extraItems.map(it => ({ ...it, kind: "extra" })),
+        ...armorItems.map(it => ({ ...it, kind: "armor" }))
+      ];
+      const picked = pickByChance(dropPool);
+      if (!picked) {
+        await bot.sendMessage(chatId, "Произошла ошибка при генерации предмета. Свяжитесь с админом.");
+        return;
+      }
+      await giveItemToPlayer(chatId, player, picked, "📦 Вы открыли Базовую коробку удачи!");
+      saveData();
+      return;
+    }
+
+    if (payload === "loot_legend_599") {
+      const idx = Math.floor(Math.random() * LEGENDARY_NAMES.length);
+      const name = LEGENDARY_NAMES[idx];
+      const matched = findItemByName(name);
+      const item = matched ? matched : { name: name, kind: "extra" };
+      await giveItemToPlayer(chatId, player, item, "💎 Вы открыли Легендарную коробку удачи!");
+      saveData();
+      return;
+    }
+
+    console.log("Unknown invoice payload:", payload);
+  } catch (e) {
+    console.error("successful_payment handling error:", e);
+  }
+});
+
+bot.on("pre_checkout_query", async (q) => {
+  try {
+    await bot.answerPreCheckoutQuery(q.id, true);
+  } catch (e) {
+    console.error("pre_checkout error:", e);
+  }
+});
+
+bot.on("message", async (msg) => {
+  try {
+    if (!msg.successful_payment) return;
+    const payload = msg.successful_payment.invoice_payload;
+    const chatId = msg.chat.id;
+    const user = msg.from;
+    const player = ensurePlayer(user);
+    if (!player) return;
+
+    if (payload === "loot_basic_100") {
+      const dropPool = [
+        ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
+        ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
+        ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
+        ...extraItems.map(it => ({ ...it, kind: "extra" })),
+        ...armorItems.map(it => ({ ...it, kind: "armor" }))
+      ];
+      const picked = pickByChance(dropPool);
+      if (!picked) {
+        await bot.sendMessage(chatId, "Произошла ошибка при генерации предмета. Свяжитесь с админом.");
+        return;
+      }
+      await giveItemToPlayer(chatId, player, picked, "📦 Вы открыли Базовую коробку удачи!");
+      saveData();
+      return;
+    }
+
+    if (payload === "loot_legend_599") {
+      const idx = Math.floor(Math.random() * LEGENDARY_NAMES.length);
+      const name = LEGENDARY_NAMES[idx];
+      const matched = findItemByName(name);
+      const item = matched ? matched : { name: name, kind: "extra" };
+      await giveItemToPlayer(chatId, player, item, "💎 Вы открыли Легендарную коробку удачи!");
+      saveData();
+      return;
+    }
+
+    console.log("Unknown invoice payload:", payload);
+  } catch (e) {
+    console.error("successful_payment handling error:", e);
+  }
+});
+
+  // Auto-save every 30s
+  setInterval(saveData, 30000);
+
+
+
+// --- Aliases (без подчеркиваний) для удобства: /clancreate, /clantop, /clanleave, /clanbattle ---
+bot.onText(/\/clancreate(?:\s+(.+))?/, (msg, match) => {
+  const chatId = msg.chat.id;
+  const player = ensurePlayer(msg.from);
+  if (!player) return bot.sendMessage(chatId, "Ошибка: не удалось найти профиль. Введите /play.");
+  const name = match && match[1] ? String(match[1]).trim() : "";
+  if (!name) return bot.sendMessage(chatId, "Использование: /clancreate <название клана>");
+  if (name.length < 2) return bot.sendMessage(chatId, "Укажите корректное название клана (минимум 2 символа).");
+  if (player.clanId) return bot.sendMessage(chatId, "Вы уже в клане — сначала выйдите (/clan_leave).");
+  const exists = Object.values(clans).find(c => String(c.name).toLowerCase() === name.toLowerCase());
+  if (exists) return bot.sendMessage(chatId, "Клан с таким названием уже существует. Выберите другое имя.");
+  const clan = ensureClan(name);
+  clan.members.push(player.id);
+  player.clanId = clan.id;
+  saveData();
+  bot.sendMessage(chatId, `✅ Клан "${escMd(clan.name)}" создан. Вы вошли в клан.`);
+});
+
+bot.onText(/\/clantop/, (msg) => {
+  const chatId = msg.chat.id;
+  const player = ensurePlayer(msg.from);
+  if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
+  const sorted = Object.values(clans).sort((a,b) => (b.points || 0) - (a.points || 0));
+  if (sorted.length === 0) return bot.sendMessage(chatId, "Пока нет зарегистрированных кланов.");
+  let text = `🏰 Топ кланов:\n\n`;
+  sorted.slice(0,10).forEach((c,i) => {
+    text += `${i+1}. ${escMd(c.name)} — ${c.points} очков (${(c.members||[]).length} участников)\n`;
+  });
+  const rankIndex = sorted.findIndex(c => c.id === player.clanId);
+  text += `\nТвой клан: ${player.clanId ? (clans[String(player.clanId)] ? clans[String(player.clanId)].name : "—") : "—"}\n`;
+  text += `Твоё место: ${rankIndex >= 0 ? rankIndex + 1 : "—"} из ${sorted.length}`;
+  bot.sendMessage(chatId, text);
+});
+
+bot.onText(/\/clanleave/, (msg) => {
+  const chatId = msg.chat.id;
+  const player = ensurePlayer(msg.from);
+  if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
+  if (!player.clanId) return bot.sendMessage(chatId, "Вы не состоите в клане.");
+  const cid = String(player.clanId);
+  const clan = clans[cid];
+  if (clan) {
+    clan.members = (clan.members || []).filter(id => String(id) !== String(player.id));
+    // if empty clan -> delete it
+    if (clan.members.length === 0) {
+      delete clans[cid];
+    }
+  }
+  player.clanId = null;
+  // also remove from battle queue
+  removeClanQueueEntry(cid, player.id);
+          saveData();
+  bot.sendMessage(chatId, "Вы вышли из клана.");
+});
+
+bot.onText(/\/clanbattle/, async (msg) => {
+  const chatId = msg.chat.id;
+  const player = ensurePlayer(msg.from);
+  if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
+  if (!player.clanId) return bot.sendMessage(chatId, "Вы не состоите в клане. Вступите в клан или создайте его: /clan_create <имя>.");
+  const clan = clans[String(player.clanId)];
+  if (!clan) return bot.sendMessage(chatId, "Ошибка: ваш клан не найден.");
+  // disallow if player currently in PvP? For safety, require no active pvp state
+  if (player.pvp) return bot.sendMessage(chatId, "Вы сейчас в PvP — дождитесь конца боя.");
+  // add to queue
+  addClanQueue(clan.id, player.id);
+  await bot.sendMessage(chatId, `✅ Вы подали заявку на клановую битву за "${escMd(clan.name)}".\nТекущая очередь вашего клана: ${clanBattleQueue[String(clan.id)] ? clanBattleQueue[String(clan.id)].length : 0}`);
+  // try starting countdown if conditions ok
+  tryStartClanBattleCountdown(chatId);
+});
+
+// ---- Callback handlers (PvE, inventory, leaderboard and pvp_request button, clans menu) ----
+
+  const __af = Object.create(null);
+bot.on("callback_query", async (q) => {
+  const dataCb = q.data;
+  const user = q.from;
+  const chatId = q.message.chat.id;
+  const messageId = q.message.message_id;
+
+  await bot.answerCallbackQuery(q.id).catch(()=>{});
+
+  // === Ограничение кнопок в любых группах (group/supergroup): разрешены только PvP и Кланы ===
+  try {
+    const chat = q.message && q.message.chat ? q.message.chat : null;
+    const chatType = chat && chat.type ? chat.type : null;
+    const isGroupType = chatType === "group" || chatType === "supergroup";
+    const allowedInGroup = new Set(["pvp_request", "clans_menu"]);
+    if (isGroupType && !allowedInGroup.has(dataCb)) {
+      const chatIdCurrent = chat.id;
+      const warnText = "Эти функции доступны только в личном сообщении бота, нажми на мою аватарку и играй!";
+      await bot.answerCallbackQuery(q.id, { show_alert: true, text: warnText }).catch(()=>{});
+      await bot.sendMessage(chatIdCurrent, warnText).catch(()=>{});
+      return;
+    }
+  } catch (e) {
+    console.error("Group gating error:", e);
+  }
+  // === /Ограничение кнопок ===
+    let player = ensurePlayer(user);
+// --- Обработчики для кнопок главного меню: PvP и Кланы ---
+if (dataCb === "pvp_request") {
+  // Поведение как при /pvp_request
+  const keyById = String(user.id);
+  const reqObj = { challengerId: user.id, username: user.username || null, chatId, ts: Date.now() };
+  pvpRequests[keyById] = reqObj;
+  if (user.username) {
+    pvpRequests[`@${user.username}`] = reqObj;
+    pvpRequests[user.username] = reqObj;
+  }
+  // Обновляем сообщение или отправляем новое
+  await editOrSend(chatId, messageId, `🏹 @${user.username || `id${user.id}`} ищет соперника! Чтобы принять — /pvp @${user.username || user.id}\nЗаявка действует ${Math.floor(PVP_REQUEST_TTL/1000)} секунд.`);
+  return;
+}
+
+if (dataCb === "clans_menu") {
+  // Показываем краткое меню по кланам (аналог текста + подсказки по /clan_* командам)
+  const text = `🏰 Кланы — команды:
+- /clan_create <имя> — создать клан
+- /clan_leave — выйти из клана
+- /inviteclan @ник|id — пригласить в клан
+- /acceptclan — принять приглашение
+- /clan_top — топ кланов
+- /acceptbattle — принять заявку на клановую битву
+- /clan_battle — подать заявку на клановую битву
+Нажмите команду в чате или используйте текстовые команды.`;
+  await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+  return;
+}
+
+// === Обработка кнопки "Назад" (главное меню) ===
+if (dataCb === "play") {
+    let player = ensurePlayer(user);
+
+    // Удаляем старое меню
+    if (player.lastMainMenuMsgId) {
+        await bot.deleteMessage(chatId, player.lastMainMenuMsgId).catch(() => {});
+    }
+
+    // Отправляем новое меню и сохраняем его message_id
+    const sent = await bot.sendMessage(chatId, "🏠 Главное меню", { reply_markup: mainMenuKeyboard() });
+    player.lastMainMenuMsgId = sent.message_id;
+  saveData();
+    return;
+}
+
+// player уже инициализирован выше
+
+
+if (dataCb === "loot_menu") {
+    await editOrSend(chatId, messageId, "📦 Меню лута — выбери:", { reply_markup: lootMenuKeyboard() });
+    return;
+}
+
+if (dataCb === "free_gift") {
+    const now = Date.now();
+    const lastGiftTime = player.lastGiftTime || 0;
+    const COOLDOWN = 24 * 60 * 60 * 1000; // 24 часа
+
+    // Проверяем подписку каждый раз при нажатии
+    try {
+        const member = await bot.getChatMember(FREE_GIFT_CHANNEL, user.id);
+        const status = (member && member.status) ? member.status : "left";
+        if (status === "left" || status === "kicked") {
+            await editOrSend(chatId, messageId,
+                `❌ Вы не подписаны на канал ${FREE_GIFT_CHANNEL}. Подпишитесь и нажмите «Проверить подписку» снова.`,
+                { reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "📢 Открыть канал", url: `https://t.me/${String(FREE_GIFT_CHANNEL).replace(/^@/, "")}` }],
+                        [{ text: "✅ Проверить подписку", callback_data: "free_gift" }],
+                        [{ text: "⬅️ Назад", callback_data: "loot_menu" }]
+                    ]
+                }});
+            return;
         }
-    });
-
-    const eligibleClans = Object.keys(clansInLobby).filter(cid => clansInLobby[cid] >= 2);
-    if (eligibleClans.length >= 2 && !clanBattleTimer) {
-        bot.sendMessage(msg.chat.id, "⏳ До начала боя осталось 20 секунд!");
-        clanBattleTimer = setTimeout(() => startClanBattle(eligibleClans), 20000);
+    } catch (err) {
+        console.error("Ошибка проверки подписки:", err);
+        await editOrSend(chatId, messageId,
+            `❌ Не удалось проверить подписку. Убедитесь, что канал ${FREE_GIFT_CHANNEL} существует и публичный.`,
+            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+        return;
     }
-});
+
+    // Проверка кулдауна (24 часа)
+    if (now - lastGiftTime < COOLDOWN) {
+        const timeLeft = COOLDOWN - (now - lastGiftTime);
+        const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+        const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+        await editOrSend(chatId, messageId,
+            `⌛ Вы уже забирали бесплатный подарок. Следующий можно получить через ${hours} ч ${minutes} мин.`,
+            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+        return;
+    }
+
+    // -------------------------
+    // Собираем пул предметов (всё из твоих массивов)
+    // -------------------------
+    const dropPool = [
+        ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
+        ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
+        ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
+        ...extraItems.map(it => ({ ...it, kind: "extra" })),
+        ...armorItems.map(it => ({ ...it, kind: "armor" }))
+    ];
+
+    // Гарантированное выпадение — используем pickByChance, если тот вернёт null — ставим случайный
+    let picked = pickByChance(dropPool);
+    if (!picked && dropPool.length > 0) picked = dropPool[Math.floor(Math.random() * dropPool.length)];
+
+    if (!picked) {
+        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+        return;
+    }
+
+    // Сохраняем время получения и отдаем предмет (используем существующую функцию giveItemToPlayer)
+    player.lastGiftTime = now;
+    // (не ставим gotFreeLoot — теперь подарок раз в 24 часа)
+    giveItemToPlayer(chatId, player, picked, "🎁 Бесплатный подарок за подписку (раз в 24 часа)");
+    saveData();
+
+    return;
+}
+
+if (dataCb === "basic_box") {
+    const title = "Базовая коробка удачи (100⭐)";
+    const description = "Одна коробка — один гарантированный предмет. Шансы аналогичны PvE.";
+    const payload = "loot_basic_100";
+    const startParam = "loot_basic";
+    const prices = [{ label: "Базовая коробка", amount: 10000 }]; // 100⭐ × 100
+    try {
+        await bot.sendInvoice(chatId, title, description, payload, "", startParam, "XTR", prices, {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+    } catch (err) {
+        console.error("sendInvoice error:", err);
+        await bot.sendMessage(chatId, "Не удалось создать счёт. Попробуйте позже или сообщите администратору бота.", {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+    }
+    return;
+}
+
+if (dataCb === "legend_box") {
+    const title = "Легендарная коробка удачи (599⭐)";
+    const description = "Легендарная коробка — выпадение только из спец. списка сильных предметов (равные шансы).";
+    const payload
