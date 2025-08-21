@@ -189,6 +189,83 @@ let clans = data.clans;
 let clanInvites = data.clanInvites || {};
 let clanBattles = data.clanBattles;
 
+function escMd(str) {
+  return String(str || '').replace(/[\\_\\*\\[\\]\\(\\)~`>#+=|{}.!-]/g, '\\\\$&');
+}
+
+function ensurePlayer(user) {
+  if (!user || typeof user.id === 'undefined') return null;
+  const key = String(user.id);
+  let p = players[key];
+  if (!p) {
+    p = {
+      id: user.id,
+      username: user.username || `id${user.id}`,
+      name: user.first_name || user.username || `id${user.id}`,
+      hp: 100,
+      maxHp: 100,
+      infection: 0,
+      clanId: null,
+      inventory: { armor: null, helmet: null, weapon: null, mutation: null, extra: null },
+      monster: null,
+      monsterStun: 0,
+      damageBoostTurns: 0,
+      damageReductionTurns: 0,
+      radiationBoost: false,
+      firstAttack: true,
+      lastHunt: 0,
+      pendingDrop: null,
+      pvpWins: 0,
+      pvpLosses: 0,
+      lastGiftTime: 0,
+      huntCooldownWarned: false
+    };
+    players[key] = p;
+    saveData();
+  } else {
+    const newUsername = user.username || `id${user.id}`;
+    if (p.username !== newUsername) p.username = newUsername;
+    const newName = user.first_name || newUsername;
+    if (p.name !== newName) p.name = newName;
+  }
+  return p;
+}
+
+function cleanDatabase() {
+  for (const [key, p] of Object.entries(players)) {
+    if (!p || typeof p !== 'object') {
+      delete players[key];
+      continue;
+    }
+    if (!p.inventory) p.inventory = {};
+    p.inventory.armor ??= null;
+    p.inventory.helmet ??= null;
+    p.inventory.weapon ??= null;
+    p.inventory.mutation ??= null;
+    p.inventory.extra ??= null;
+    p.id ??= Number(key);
+    p.username ??= `id${key}`;
+    p.name ??= p.username;
+    p.hp ??= 100;
+    p.maxHp ??= p.hp;
+    p.infection ??= 0;
+    p.clanId ??= null;
+    p.monster ??= null;
+    p.monsterStun ??= 0;
+    p.damageBoostTurns ??= 0;
+    p.damageReductionTurns ??= 0;
+    p.radiationBoost ??= false;
+    p.firstAttack ??= false;
+    p.lastHunt ??= 0;
+    p.pendingDrop ??= null;
+    p.pvpWins ??= 0;
+    p.pvpLosses ??= 0;
+    p.lastGiftTime ??= 0;
+    p.huntCooldownWarned ??= false;
+  }
+  saveData();
+}
+
 // --- Config constants ---
 const PVP_REQUEST_TTL = 60 * 1000;
 const PVP_POINT = 300;
