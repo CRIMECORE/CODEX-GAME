@@ -9,33 +9,13 @@ import sharp from 'sharp';
 import fetch from 'node-fetch';
 import http from 'http';
 
-import pkg from 'pg';
-const { Pool } = pkg;
+import pool from './lib/db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TOKEN = process.env.TELEGRAM_TOKEN || process.env.TOKEN || process.env.BOT_TOKEN;
 
-// Safer SSL options for Render / Postgres
-let sslOption;
-if (process.env.DATABASE_SSL === 'disable') {
-  sslOption = false;
-} else {
-  sslOption = { rejectUnauthorized: false };
-}
 
-const pool = process.env.DATABASE_URL
-  ? new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: sslOption
-    })
-  : new Pool({
-      host: process.env.PGHOST,
-      user: process.env.PGUSER,
-      password: process.env.PGPASSWORD,
-      database: process.env.PGDATABASE,
-      port: process.env.PGPORT
-    });
 
 function normalizeName(str) {
   return String(str || '')
@@ -550,11 +530,11 @@ async function saveData() {
     data.clans = clans;
     data.clanBattles = clanBattles;
     data.clanInvites = clanInvites;
-    await pool.query(
+    await pool.execute(
       `INSERT INTO bot_state (id, state, updated_at)
-       VALUES (1, $1, now())
-       ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
-      [data]
+       VALUES (1, ?, NOW())
+       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
+      [JSON.stringify(data)]
     );
   } catch (e) {
     console.error("Ошибка записи в PostgreSQL:", e);
@@ -577,8 +557,8 @@ async function saveData() {
 
 async function loadData() {
   try {
-    const res = await pool.query("SELECT state FROM bot_state WHERE id = 1");
-    if (res.rows.length === 0) {
+  const [rows] = await pool.execute("SELECT state FROM bot_state WHERE id = 1");
+  if (rows.length === 0) {
       // Попробуем засеять из локального JSON
       try {
         if (typeof fs !== 'undefined' && typeof DATA_FILE !== 'undefined' && fs.existsSync(DATA_FILE)) {
@@ -594,9 +574,9 @@ async function loadData() {
           clans = data.clans;
           clanBattles = data.clanBattles;
           clanInvites = data.clanInvites;
-          await pool.query(
-            "INSERT INTO bot_state (id, state) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state",
-            [data]
+          await pool.execute(
+            "INSERT INTO bot_state (id, state, updated_at) VALUES (1, ?, NOW()) ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()",
+            [JSON.stringify(data)]
           );
           console.log("PostgreSQL: состояние создано из локального data.json.");
           return;
@@ -610,14 +590,14 @@ async function loadData() {
       clans = data.clans;
       clanBattles = data.clanBattles;
       clanInvites = data.clanInvites;
-      await pool.query(
-        "INSERT INTO bot_state (id, state) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state",
-        [data]
+      await pool.execute(
+        "INSERT INTO bot_state (id, state, updated_at) VALUES (1, ?, NOW()) ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()",
+        [JSON.stringify(data)]
       );
       console.log("PostgreSQL: создано новое состояние по умолчанию.");
       return;
     }
-    const parsed = res.rows[0].state || {};
+  const parsed = rows[0] && (typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state) || {};
     players = parsed.players || {};
     clans = parsed.clans || {};
     clanBattles = parsed.clanBattles || [];
@@ -629,7 +609,7 @@ async function loadData() {
     data.clanBattles = clanBattles;
     data.clanInvites = clanInvites;
 
-    console.log("PostgreSQL: состояние загружено.");
+  console.log("MySQL: состояние загружено.");
   } catch (e) {
     console.error("Ошибка чтения из PostgreSQL:", e);
     try {
