@@ -191,14 +191,18 @@ let saveAgain = false;
 
   // === Патч безопасного редактирования сообщений (добавлено) ===
   try {
-    const _edit = bot.editMessageText.bind(bot);
+    const _editText = bot.editMessageText.bind(bot);
     bot.editMessageText = async function (text, opts = {}) {
       try {
         if (!opts || typeof opts.chat_id === "undefined" || typeof opts.message_id === "undefined") {
           throw new Error("missing chat_id/message_id");
         }
-        return await _edit(text, opts);
+        return await _editText(text, opts);
       } catch (e) {
+        // Игнорируем ошибку "message is not modified"
+        if (e && e.response && e.response.body && typeof e.response.body.description === 'string' && e.response.body.description.includes('message is not modified')) {
+          return;
+        }
         const chatId = (opts && (opts.chat_id || opts.chatId)) || (this && this.chat && this.chat.id);
         if (typeof chatId === "undefined") return;
         const sendOpts = { reply_markup: opts && opts.reply_markup };
@@ -210,9 +214,35 @@ let saveAgain = false;
             delete sendOpts.parse_mode;
             return await bot.sendMessage(chatId, text, sendOpts);
           } catch (e3) {
-            console.error("safe edit fallback error:", e3.message);
+            if (process.env.NODE_ENV !== 'production') console.error("safe edit fallback error:", e3.message);
           }
         }
+      }
+    };
+
+    // Аналогично для editMessageCaption
+    const _editCaption = bot.editMessageCaption.bind(bot);
+    bot.editMessageCaption = async function (caption, opts = {}) {
+      try {
+        return await _editCaption(caption, opts);
+      } catch (e) {
+        if (e && e.response && e.response.body && typeof e.response.body.description === 'string' && e.response.body.description.includes('message is not modified')) {
+          return;
+        }
+        if (process.env.NODE_ENV !== 'production') console.error("editMessageCaption error:", e.message);
+      }
+    };
+
+    // Аналогично для editMessageReplyMarkup
+    const _editReplyMarkup = bot.editMessageReplyMarkup.bind(bot);
+    bot.editMessageReplyMarkup = async function (markup, opts = {}) {
+      try {
+        return await _editReplyMarkup(markup, opts);
+      } catch (e) {
+        if (e && e.response && e.response.body && typeof e.response.body.description === 'string' && e.response.body.description.includes('message is not modified')) {
+          return;
+        }
+        if (process.env.NODE_ENV !== 'production') console.error("editMessageReplyMarkup error:", e.message);
       }
     };
   } catch (e) {
