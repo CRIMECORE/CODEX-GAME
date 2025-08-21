@@ -1693,19 +1693,21 @@ if (dataCb === "attack") {
 
 
   if (dataCb === "event_action") {
-    if (!player.currentEvent) {
-      await bot.answerCallbackQuery(q.id, { text: "Событие не найдено.", show_alert: true }).catch(()=>{});
-      return;
-    }
-    const ev = player.currentEvent;
-    delete player.currentEvent;
+  if (!player.currentEvent) {
+    await bot.answerCallbackQuery(q.id, { text: "Событие не найдено.", show_alert: true }).catch(()=>{});
+    return;
+  }
+  const ev = player.currentEvent;
+  delete player.currentEvent;
 
+  let text = "";
+  if (Math.random() < 0.5) {
+    // GOOD эффект
     const infectionGain = Math.floor(Math.random() * 151) + 100; // 100–250
     player.infection = (player.infection || 0) + infectionGain;
+    text = `✅ ${ev.good}\n\n☣️ Ты получил ${infectionGain} заражения.`;
 
-    let text = `✅ ${ev.good}\\n\\n☣️ Ты получил ${infectionGain} заражения.`;
-
-    // 15% chance item
+    // 15% шанс предмета
     if (Math.random() < 0.15) {
       const dropPool = [
         ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
@@ -1717,7 +1719,7 @@ if (dataCb === "attack") {
       const picked = pickByChance(dropPool);
       if (picked) {
         player.pendingDrop = { ...picked };
-        text += `\\n\\n🎁 Выпало: ${escMd(picked.name)}\\nЧто делать?`;
+        text += `\n\n🎁 Выпало: ${escMd(picked.name)}\nЧто делать?`;
         saveData();
         await editOrSend(chatId, messageId, text, {
           reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }], [{ text: "🗑️ Выбросить", callback_data: "discard_drop" }]] }
@@ -1725,6 +1727,25 @@ if (dataCb === "attack") {
         return;
       }
     }
+    saveData();
+    await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+    return;
+  } else {
+    // BAD эффект
+    text = `❌ ${ev.bad}`;
+    if (ev.badEffect) {
+      applyBadEffect(player, ev.badEffect);
+      if (ev.badEffect.type === "lose_points") {
+        text += `\n\n☣️ Ты потерял ${ev.badEffect.amount} заражения.`;
+      } else if (ev.badEffect.type === "lose_item" && ev.badEffect.slot) {
+        text += `\n\n🗑️ Ты потерял предмет из слота: ${ev.badEffect.slot}.`;
+      }
+    }
+    saveData();
+    await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+    return;
+  }
+}
 
     saveData();
     await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
