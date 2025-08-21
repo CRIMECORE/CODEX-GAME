@@ -1,0 +1,63 @@
+-- MySQL schema for CODEX-GAME
+-- Run against your database (codex_game by default)
+
+CREATE TABLE IF NOT EXISTS players (
+  id BIGINT PRIMARY KEY,
+  username VARCHAR(191),
+  name VARCHAR(191),
+  hp INT DEFAULT 100,
+  max_hp INT DEFAULT 100,
+  infection BIGINT DEFAULT 0,
+  clan_id INT NULL,
+  inventory JSON NULL,
+  monster JSON NULL,
+  pending_drop JSON NULL,
+  pvp JSON NULL,
+  pvp_wins INT DEFAULT 0,
+  pvp_losses INT DEFAULT 0,
+  last_hunt_ms BIGINT NULL,
+  last_gift_time_ms BIGINT NULL,
+  last_main_menu_msg_id INT NULL,
+  current_battle_msg_id INT NULL,
+  hunt_cooldown_warned TINYINT(1) DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS clans (
+  id INT PRIMARY KEY,
+  name VARCHAR(191),
+  points INT DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS clan_members (
+  clan_id INT NOT NULL,
+  player_id BIGINT NOT NULL,
+  PRIMARY KEY (clan_id, player_id),
+  FOREIGN KEY (clan_id) REFERENCES clans(id) ON DELETE CASCADE,
+  FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS clan_battles (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  data JSON NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS clan_invites (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  clan_id INT NOT NULL,
+  player_id BIGINT NOT NULL,
+  data JSON NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (clan_id) REFERENCES clans(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- bot_state table to store app-wide state (already used by code)
+CREATE TABLE IF NOT EXISTS bot_state (
+  id INT PRIMARY KEY,
+  state JSON NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

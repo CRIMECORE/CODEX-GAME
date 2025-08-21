@@ -5,7 +5,11 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "local:db": "docker compose -f docker-compose.local.yml up -d",
+    "local:db:down": "docker compose -f docker-compose.local.yml down -v",
+    "local:start": "npm run local:db && node index.js",
+    "restore-data": "node scripts/restoreData.js"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
@@ -13,7 +17,7 @@
     "node-fetch": "^2.7.0",
     "node-telegram-bot-api": "^0.66.0",
     "sharp": "^0.34.3",
-    "pg": "^8.11.5"
+  "mysql2": "^3.3.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

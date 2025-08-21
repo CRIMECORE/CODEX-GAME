@@ -9,8 +9,7 @@ import sharp from 'sharp';
 import fetch from 'node-fetch';
 import http from 'http';
 
-import pkg from 'pg';
-const { Pool } = pkg;
+import mysql from 'mysql2/promise';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,18 +23,25 @@ if (process.env.DATABASE_SSL === 'disable') {
   sslOption = { rejectUnauthorized: false };
 }
 
-const pool = process.env.DATABASE_URL
-  ? new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: sslOption
-    })
-  : new Pool({
-      host: process.env.PGHOST,
-      user: process.env.PGUSER,
-      password: process.env.PGPASSWORD,
-      database: process.env.PGDATABASE,
-      port: process.env.PGPORT
-    });
+// MySQL connection pool (local by default)
+const poolConfig = process.env.MYSQL_URL
+  ? { uri: process.env.MYSQL_URL }
+  : {
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'codex_game',
+      port: process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : 3306,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0
+    };
+
+let pool;
+async function createPool() {
+  if (!pool) pool = await mysql.createPool(poolConfig);
+  return pool;
+}
 
 function normalizeName(str) {
   return String(str || '')
@@ -168,7 +174,7 @@ let clanBattles = data.clanBattles;
 let saving = false;
 let saveAgain = false;
 
-  await initPostgres();
+  await initMySQL();
   await loadData();
   cleanDatabase();
   console.log("Бот запущен ✅");
@@ -550,11 +556,13 @@ async function saveData() {
     data.clans = clans;
     data.clanBattles = clanBattles;
     data.clanInvites = clanInvites;
-    await pool.query(
+    const p = await createPool();
+    // MySQL: use JSON column and ON DUPLICATE KEY UPDATE
+    await p.query(
       `INSERT INTO bot_state (id, state, updated_at)
-       VALUES (1, $1, now())
-       ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
-      [data]
+       VALUES (?, ? , CURRENT_TIMESTAMP)
+       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = CURRENT_TIMESTAMP`,
+      [1, JSON.stringify(data)]
     );
   } catch (e) {
     console.error("Ошибка записи в PostgreSQL:", e);
@@ -577,8 +585,9 @@ async function saveData() {
 
 async function loadData() {
   try {
-    const res = await pool.query("SELECT state FROM bot_state WHERE id = 1");
-    if (res.rows.length === 0) {
+  const p = await createPool();
+  const [rows] = await p.query("SELECT state FROM bot_state WHERE id = ?", [1]);
+  if (!rows || rows.length === 0) {
       // Попробуем засеять из локального JSON
       try {
         if (typeof fs !== 'undefined' && typeof DATA_FILE !== 'undefined' && fs.existsSync(DATA_FILE)) {
@@ -594,9 +603,9 @@ async function loadData() {
           clans = data.clans;
           clanBattles = data.clanBattles;
           clanInvites = data.clanInvites;
-          await pool.query(
-            "INSERT INTO bot_state (id, state) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state",
-            [data]
+          await p.query(
+            "INSERT INTO bot_state (id, state) VALUES (?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
+            [1, JSON.stringify(data)]
           );
           console.log("PostgreSQL: состояние создано из локального data.json.");
           return;
@@ -610,14 +619,14 @@ async function loadData() {
       clans = data.clans;
       clanBattles = data.clanBattles;
       clanInvites = data.clanInvites;
-      await pool.query(
-        "INSERT INTO bot_state (id, state) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state",
-        [data]
+      await p.query(
+        "INSERT INTO bot_state (id, state) VALUES (?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
+        [1, JSON.stringify(data)]
       );
       console.log("PostgreSQL: создано новое состояние по умолчанию.");
       return;
     }
-    const parsed = res.rows[0].state || {};
+  const parsed = JSON.parse(rows[0].state) || {};
     players = parsed.players || {};
     clans = parsed.clans || {};
     clanBattles = parsed.clanBattles || [];
@@ -2358,12 +2367,16 @@ if (process.env.NODE_ENV !== 'test') {
 // DATABASE_URL должен быть задан в переменных окружения Render
 
 
-async function initPostgres() {
-  await pool.query(`CREATE TABLE IF NOT EXISTS bot_state (
-    id INTEGER PRIMARY KEY,
-    state JSONB NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT now()
-  )`);
+async function initMySQL() {
+  const p = await createPool();
+  // MySQL doesn't have JSONB/timestamptz; use JSON and DATETIME
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS bot_state (
+      id INT PRIMARY KEY,
+      state JSON NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
 }
 
 if (process.env.NODE_ENV !== 'test') {
