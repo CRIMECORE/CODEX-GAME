@@ -4,12 +4,20 @@ dotenv.config();
 import TelegramBot from 'node-telegram-bot-api';
 import fs from 'fs';
 import path from 'path';
+import { clearBotStateTable } from './index.js';
 import { fileURLToPath } from 'url';
 import sharp from 'sharp';
 import fetch from 'node-fetch';
 import http from 'http';
 
+
 import pool from './lib/db.js';
+
+// --- Очистка таблицы bot_state (MySQL) ---
+export async function clearBotStateTable() {
+  await pool.execute('DELETE FROM bot_state');
+  console.log('Таблица bot_state очищена.');
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -78,7 +86,38 @@ async function generateInventoryImage(player) {
 }
 
 
+
+await clearBotStateTable();
+
 let bot; // глобальная переменная для TelegramBot
+
+// --- saveData определена выше process.on ---
+async function saveData() {
+  if (global.saving) {
+    global.saveAgain = true;
+    return;
+  }
+  global.saving = true;
+  try {
+    global.data.players = global.players;
+    global.data.clans = global.clans;
+    global.data.clanBattles = global.clanBattles;
+    global.data.clanInvites = global.clanInvites;
+    await pool.execute(
+      `INSERT INTO bot_state (id, state, updated_at)
+       VALUES (1, ?, NOW())
+       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
+      [JSON.stringify(global.data)]
+    );
+  } catch (e) {
+    console.error("Ошибка записи в MySQL:", e);
+  }
+  global.saving = false;
+  if (global.saveAgain) {
+    global.saveAgain = false;
+    saveData();
+  }
+}
 
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err);
