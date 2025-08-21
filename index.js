@@ -12,8 +12,38 @@ import http from 'http';
 
 import pool from './lib/db.js';
 
+// --- Очередь для ограниченного числа одновременных запросов к БД ---
+const DB_CONCURRENCY_LIMIT = 25;
+let dbActive = 0;
+const dbQueue = [];
+
+async function queueDbRequest(fn) {
+  return new Promise((resolve, reject) => {
+    const task = async () => {
+      try {
+        dbActive++;
+        const result = await fn();
+        resolve(result);
+      } catch (e) {
+        reject(e);
+      } finally {
+        dbActive--;
+        if (dbQueue.length > 0) {
+          const next = dbQueue.shift();
+          setImmediate(next);
+        }
+      }
+    };
+    if (dbActive < DB_CONCURRENCY_LIMIT) {
+      task();
+    } else {
+      dbQueue.push(task);
+    }
+  });
+}
+
 export async function clearBotStateTable() {
-  await pool.execute('DELETE FROM bot_state');
+  await queueDbRequest(() => pool.execute('DELETE FROM bot_state'));
   console.log('Таблица bot_state очищена.');
 }
 
@@ -101,11 +131,13 @@ async function saveData() {
       data.clans = clans;
       data.clanBattles = clanBattles;
       data.clanInvites = clanInvites;
-      await pool.execute(
-        `INSERT INTO bot_state (id, state, updated_at)
-         VALUES (1, ?, NOW())
-         ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
-        [JSON.stringify(data)]
+      await queueDbRequest(() =>
+        pool.execute(
+          `INSERT INTO bot_state (id, state, updated_at)
+           VALUES (1, ?, NOW())
+           ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
+          [JSON.stringify(data)]
+        )
       );
     } catch (e) {
       if (process.env.NODE_ENV !== 'production') console.error("Ошибка записи в MySQL:", e);
@@ -552,36 +584,33 @@ async function giveItemToPlayer(chatId, player, item, sourceText = "") {
 // ---- Data load/save and migration ----
 
 async function saveData() {
-  if (saving) {
-    saveAgain = true;
-    return;
-  }
-  saving = true;
-  try {
-    data.players = players;
-    data.clans = clans;
-    data.clanBattles = clanBattles;
-    data.clanInvites = clanInvites;
-    await pool.execute(
-      `INSERT INTO bot_state (id, state, updated_at)
-       VALUES (1, ?, NOW())
-       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
-      [JSON.stringify(data)]
-    );
-  } catch (e) {
-    console.error("Ошибка записи в PostgreSQL:", e);
-  }
-  // ...
-  saving = false;
-  if (saveAgain) {
-    saveAgain = false;
-    saveData();
-  }
+  if (savePending) return;
+  savePending = true;
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(async () => {
+    savePending = false;
+    try {
+      data.players = players;
+      data.clans = clans;
+      data.clanBattles = clanBattles;
+      data.clanInvites = clanInvites;
+      await queueDbRequest(() =>
+        pool.execute(
+          `INSERT INTO bot_state (id, state, updated_at)
+           VALUES (1, ?, NOW())
+           ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
+          [JSON.stringify(data)]
+        )
+      );
+    } catch (e) {
+      if (process.env.NODE_ENV !== 'production') console.error("Ошибка записи в MySQL:", e);
+    }
+  }, 2000);
 }
 
 async function loadData() {
   try {
-  const [rows] = await pool.execute("SELECT state FROM bot_state WHERE id = 1");
+    const [rows] = await queueDbRequest(() => pool.execute("SELECT state FROM bot_state WHERE id = 1"));
     if (rows.length === 0) {
       // Если нет состояния — создаём пустое
       data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
@@ -589,14 +618,16 @@ async function loadData() {
       clans = data.clans;
       clanBattles = data.clanBattles;
       clanInvites = data.clanInvites;
-      await pool.execute(
-        "INSERT INTO bot_state (id, state, updated_at) VALUES (1, ?, NOW()) ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()",
-        [JSON.stringify(data)]
+      await queueDbRequest(() =>
+        pool.execute(
+          "INSERT INTO bot_state (id, state, updated_at) VALUES (1, ?, NOW()) ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()",
+          [JSON.stringify(data)]
+        )
       );
       console.log("MySQL: создано новое состояние по умолчанию.");
       return;
     }
-  const parsed = rows[0] && (typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state) || {};
+    const parsed = rows[0] && (typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state) || {};
     players = parsed.players || {};
     clans = parsed.clans || {};
     clanBattles = parsed.clanBattles || [];
@@ -608,7 +639,7 @@ async function loadData() {
     data.clanBattles = clanBattles;
     data.clanInvites = clanInvites;
 
-  console.log("MySQL: состояние загружено.");
+    console.log("MySQL: состояние загружено.");
   } catch (e) {
     console.error("Ошибка чтения из MySQL:", e);
   }
@@ -977,6 +1008,9 @@ bot.onText(/\/acceptclan(?:@\w+)?(?:\s+(.+))?/i, (msg, match) => {
   saveData();
   bot.sendMessage(chatId, `✅ Вы вступили в клан "${escMd(clan.name)}".`);
 });
+
+
+
 // helper to advance next fighter on team
 async function startClanBattle(clanAId, clanBId, chatId) {
   const clanA = clans[String(clanAId)];
@@ -1901,9 +1935,13 @@ bot.onText(/\/clanleave/, (msg) => {
   const clan = clans[cid];
   if (clan) {
     clan.members = (clan.members || []).filter(id => String(id) !== String(player.id));
-    if (clan.members.length === 0) delete clans[cid];
+    // if empty clan -> delete it
+    if (clan.members.length === 0) {
+      delete clans[cid];
+    }
   }
   player.clanId = null;
+  // also remove from battle queue
   removeClanQueueEntry(cid, player.id);
           saveData();
   bot.sendMessage(chatId, "Вы вышли из клана.");
@@ -1916,9 +1954,12 @@ bot.onText(/\/clanbattle/, async (msg) => {
   if (!player.clanId) return bot.sendMessage(chatId, "Вы не состоите в клане. Вступите в клан или создайте его: /clan_create <имя>.");
   const clan = clans[String(player.clanId)];
   if (!clan) return bot.sendMessage(chatId, "Ошибка: ваш клан не найден.");
+  // disallow if player currently in PvP? For safety, require no active pvp state
   if (player.pvp) return bot.sendMessage(chatId, "Вы сейчас в PvP — дождитесь конца боя.");
+  // add to queue
   addClanQueue(clan.id, player.id);
-  await bot.sendMessage(chatId, `✅ Вы подали заявку на клановую битву за \"${escMd(clan.name)}\".\nТекущая очередь вашего клана: ${clanBattleQueue[String(clan.id)] ? clanBattleQueue[String(clan.id)].length : 0}`);
+  await bot.sendMessage(chatId, `✅ Вы подали заявку на клановую битву за "${escMd(clan.name)}".\nТекущая очередь вашего клана: ${clanBattleQueue[String(clan.id)] ? clanBattleQueue[String(clan.id)].length : 0}`);
+  // try starting countdown if conditions ok
   tryStartClanBattleCountdown(chatId);
 });
 
@@ -2193,9 +2234,11 @@ bot.onText(/\/inviteclan(?:@\w+)?\s+(.+)/i, (msg, match) => {
   const raw = match[1] ? String(match[1]).trim() : "";
   if (!raw) return bot.sendMessage(chatId, "Использование: /inviteclan @username или /inviteclan id");
   let targetId = null;
+  // numeric id?
   if (/^\d+$/.test(raw)) {
     targetId = String(raw);
   } else {
+    // try find player by username
     const target = findPlayerByIdentifier(raw);
     if (target && target.id) targetId = String(target.id);
   }
@@ -2205,6 +2248,7 @@ bot.onText(/\/inviteclan(?:@\w+)?\s+(.+)/i, (msg, match) => {
   saveData();
   console.log("DEBUG invite saved:", clanInvites);
   bot.sendMessage(chatId, `✅ Приглашение сохранено: ${targetId} приглашён в клан "${clans[String(inviter.clanId)].name}".`);
+  // try to notify the user if they have started the bot
   try {
     const maybePlayer = players[String(targetId)];
     if (maybePlayer && maybePlayer.id) {
@@ -2224,6 +2268,7 @@ bot.onText(/\/acceptclan(?:@\w+)?(?:\s+(.+))?/i, (msg, match) => {
   const myKey = String(player.id);
   let invite = clanInvites[myKey];
   if (!invite && arg) {
+    // try find invite by matching inviter identifier (if user supplied inviter)
     let inviterId = null;
     if (/^\d+$/.test(arg)) inviterId = Number(arg);
     else {
@@ -2241,6 +2286,7 @@ bot.onText(/\/acceptclan(?:@\w+)?(?:\s+(.+))?/i, (msg, match) => {
   const clan = clans[String(invite.clanId)];
   if (!clan) return bot.sendMessage(chatId, "Клан уже не существует.");
   if (!Array.isArray(clan.members)) clan.members = [];
+  // prevent double join
   if (!clan.members.includes(player.id)) clan.members.push(player.id);
   player.clanId = clan.id;
   delete clanInvites[myKey];
@@ -2248,7 +2294,6 @@ bot.onText(/\/acceptclan(?:@\w+)?(?:\s+(.+))?/i, (msg, match) => {
   console.log("DEBUG accept complete:", clans[String(clan.id)]);
   bot.sendMessage(chatId, `✅ Вы вступили в клан "${escMd(clan.name)}".`);
 });
-
 
 
 
@@ -2292,45 +2337,3 @@ bot.onText(/\/acceptbattle/, (msg) => {
         clanBattleTimer = setTimeout(() => startClanBattle(eligibleClans), 20000);
     }
 });
-}
-
-  if (process.env.NODE_ENV !== 'test') {
-    startBot().catch(console.error);
-  }
-
-
-// === Anti-idle пинг ===
-// Используем встроенный fetch в Node.js 18+
-if (process.env.NODE_ENV !== 'test') {
-  setInterval(() => {
-    fetch(process.env.RENDER_EXTERNAL_URL || "https://crimecore-bot.onrender.com")
-      .then(() => console.log("Пинг OK"))
-      .catch(err => console.error("Пинг не удался:", err));
-  }, 5 * 60 * 1000);
-}
-
-
-// === Мини HTTP-сервер для Render ===
-// === PostgreSQL (Render) ===
-
-// DATABASE_URL должен быть задан в переменных окружения Render
-
-
-
-
-if (process.env.NODE_ENV !== 'test') {
-  const PORT = process.env.PORT || 3000;
-  http.createServer((req, res) => {
-    res.writeHead(200, {"Content-Type": "text/plain"});
-    res.end("Bot is running\n");
-  }).listen(PORT, () => console.log(`HTTP server running on port ${PORT}`));
-}
-
-
-// Аккуратное сохранение при завершении процесса
-if (process.env.NODE_ENV !== 'test') {
-  process.on('SIGTERM', () => { saveData().finally(() => process.exit(0)); });
-  process.on('SIGINT', () => { saveData().finally(() => process.exit(0)); });
-}
-
-export { mainMenuKeyboard, lootMenuKeyboard };
