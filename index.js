@@ -273,6 +273,16 @@ function cleanDatabase() {
   saveData();
 }
 
+function applyArmorHelmetBonuses(player) {
+  if (!player || !player.inventory) return;
+  const armorHp = player.inventory.armor && typeof player.inventory.armor.hp === 'number'
+    ? player.inventory.armor.hp
+    : 0;
+  player.maxHp = 100 + armorHp;
+  if (typeof player.hp !== 'number') player.hp = player.maxHp;
+  if (player.hp > player.maxHp) player.hp = player.maxHp;
+}
+
 // --- Config constants ---
 const PVP_REQUEST_TTL = 60 * 1000;
 const PVP_POINT = 300;
