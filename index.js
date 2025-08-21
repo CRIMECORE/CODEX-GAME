@@ -145,7 +145,7 @@ function lootMenuKeyboard() {
   };
 }
 
-function startBot() {
+async function startBot() {
     if (typeof bot !== 'undefined' && bot) {
         bot.removeAllListeners();
         if (bot.stopPolling) {
@@ -153,8 +153,23 @@ function startBot() {
         }
     }
 
-bot = new TelegramBot(TOKEN, { polling: true });
 
+
+// data file path (works with "type": "module")
+const DATA_FILE = path.join(__dirname, "data.json");
+
+let data = { players: {}, clans: {}, clanBattles: [] }; // canonical structure
+let players = data.players;
+let clans = data.clans;
+let clanInvites = data.clanInvites || {};
+let clanBattles = data.clanBattles;
+
+  await initPostgres();
+  await loadData();
+  cleanDatabase();
+  console.log("Бот запущен ✅");
+
+  bot = new TelegramBot(TOKEN, { polling: true });
 
   // === Патч безопасного редактирования сообщений (добавлено) ===
   try {
@@ -180,14 +195,6 @@ bot = new TelegramBot(TOKEN, { polling: true });
     console.error("patch editMessageText failed:", e.message);
   }
   // === /Патч безопасного редактирования сообщений ===
-// data file path (works with "type": "module")
-const DATA_FILE = path.join(__dirname, "data.json");
-
-let data = { players: {}, clans: {}, clanBattles: [] }; // canonical structure
-let players = data.players;
-let clans = data.clans;
-let clanInvites = data.clanInvites || {};
-let clanBattles = data.clanBattles;
 
 function escMd(str) {
   return String(str || '').replace(/[\\_\\*\\[\\]\\(\\)~`>#+=|{}.!-]/g, '\\\\$&');
@@ -531,84 +538,6 @@ async function saveData() {
     console.error("Ошибка записи в PostgreSQL:", e);
   }
 }
-
-async function loadData() {
-  try {
-    const res = await pool.query("SELECT state FROM bot_state WHERE id = 1");
-    if (res.rows.length === 0) {
-      try {
-        if (fs.existsSync(DATA_FILE)) {
-          const raw = fs.readFileSync(DATA_FILE, "utf-8");
-          const parsed = JSON.parse(raw);
-          data = {
-            players: parsed.players || {},
-            clans: parsed.clans || {},
-            clanBattles: parsed.clanBattles || [],
-            clanInvites: parsed.clanInvites || {}
-          };
-          players = data.players;
-          clans = data.clans;
-          clanBattles = data.clanBattles;
-          clanInvites = data.clanInvites;
-          await pool.query(
-            "INSERT INTO bot_state (id, state) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state",
-            [data]
-          );
-          console.log("PostgreSQL: состояние создано из локального data.json.");
-          return;
-        }
-      } catch (seedErr) {
-        console.warn("Не удалось засеять состояние из локального файла:", seedErr?.message || seedErr);
-      }
-      data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
-      players = data.players;
-      clans = data.clans;
-      clanBattles = data.clanBattles;
-      clanInvites = data.clanInvites;
-      await pool.query(
-        "INSERT INTO bot_state (id, state) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state",
-        [data]
-      );
-      console.log("PostgreSQL: создано новое состояние по умолчанию.");
-      return;
-    }
-    const parsed = res.rows[0].state || {};
-    players = parsed.players || {};
-    clans = parsed.clans || {};
-    clanBattles = parsed.clanBattles || [];
-    clanInvites = parsed.clanInvites || {};
-    data.players = players;
-    data.clans = clans;
-    data.clanBattles = clanBattles;
-    data.clanInvites = clanInvites;
-    console.log("PostgreSQL: состояние загружено.");
-  } catch (e) {
-    console.error("Ошибка чтения из PostgreSQL:", e);
-    try {
-      if (fs.existsSync(DATA_FILE)) {
-        const raw = fs.readFileSync(DATA_FILE, "utf-8");
-        const parsed = JSON.parse(raw);
-        data = {
-          players: parsed.players || {},
-          clans: parsed.clans || {},
-          clanBattles: parsed.clanBattles || [],
-          clanInvites: parsed.clanInvites || {}
-        };
-        players = data.players;
-        clans = data.clans;
-        clanBattles = data.clanBattles;
-        clanInvites = data.clanInvites;
-        console.log("Использовано состояние из локального data.json.");
-      } else {
-        console.warn("Локальный файл состояния не найден, используются текущие данные в памяти.");
-      }
-    } catch (fileErr) {
-      console.error("Не удалось загрузить локальный файл состояния:", fileErr);
-    }
-  }
-}
-
-
 
 async function loadData() {
   try {
@@ -1928,23 +1857,8 @@ bot.on("message", async (msg) => {
   }
 });
 
-// Auto-save every 30s
-setInterval(saveData, 30000);
-
-// initial load + clean
-async function main() {
-  await initPostgres();       // сначала создаём таблицы
-  await loadData();           // потом грузим данные
-  cleanDatabase();
-  console.log("Бот запущен ✅");
-
-  // только после инициализации запускаем бота
-  startBot();
-}
-
-if (process.env.NODE_ENV !== 'test') {
-  main().catch(console.error);
-}
+  // Auto-save every 30s
+  setInterval(saveData, 30000);
 
 
 
@@ -2382,9 +2296,9 @@ bot.onText(/\/acceptbattle/, (msg) => {
 });
 }
 
-if (process.env.NODE_ENV !== 'test') {
-  startBot();
-}
+  if (process.env.NODE_ENV !== 'test') {
+    startBot().catch(console.error);
+  }
 
 
 // === Anti-idle пинг ===
