@@ -561,7 +561,7 @@ async function saveData() {
       [1, JSON.stringify(data)]
     );
   } catch (e) {
-    console.error("Ошибка записи в PostgreSQL:", e);
+    console.error("Ошибка записи в MySQL:", e);
   }
   // Always try to persist a local backup so progress isn't lost if the
   // database is unavailable. Failures here shouldn't crash the bot.
@@ -581,34 +581,9 @@ async function saveData() {
 
 async function loadData() {
   try {
-  const [rows] = await dbQuery("SELECT state FROM bot_state WHERE id = ?", [1]);
-  if (!rows || rows.length === 0) {
-      // Попробуем засеять из локального JSON
-      try {
-        if (typeof fs !== 'undefined' && typeof DATA_FILE !== 'undefined' && fs.existsSync(DATA_FILE)) {
-          const raw = fs.readFileSync(DATA_FILE, "utf-8");
-          const parsed = JSON.parse(raw);
-          data = {
-            players: parsed.players || {},
-            clans: parsed.clans || {},
-            clanBattles: parsed.clanBattles || [],
-            clanInvites: parsed.clanInvites || {}
-          };
-          players = data.players;
-          clans = data.clans;
-          clanBattles = data.clanBattles;
-          clanInvites = data.clanInvites;
-          await dbQuery(
-            "INSERT INTO bot_state (id, state) VALUES (?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
-            [1, JSON.stringify(data)]
-          );
-          console.log("PostgreSQL: состояние создано из локального data.json.");
-          return;
-        }
-      } catch (seedErr) {
-        console.warn("Не удалось засеять состояние из локального файла:", seedErr?.message || seedErr);
-      }
-      // Иначе создаём пустое
+    const [rows] = await dbQuery("SELECT state FROM bot_state WHERE id = ?", [1]);
+    if (!rows || rows.length === 0) {
+      // No state in DB -> start from empty (do NOT read local data.json)
       data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
       players = data.players;
       clans = data.clans;
@@ -618,10 +593,20 @@ async function loadData() {
         "INSERT INTO bot_state (id, state) VALUES (?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
         [1, JSON.stringify(data)]
       );
-      console.log("PostgreSQL: создано новое состояние по умолчанию.");
+      console.log("MySQL: создано новое состояние по умолчанию.");
       return;
     }
-  const parsed = JSON.parse(rows[0].state) || {};
+
+    const rawState = rows[0].state;
+    let parsed;
+    if (typeof rawState === 'string') {
+      try { parsed = JSON.parse(rawState); } catch (e) { parsed = {}; console.warn('Не удалось распарсить state JSON из MySQL, используем пустой объект:', e.message); }
+    } else if (rawState && typeof rawState === 'object') {
+      parsed = rawState;
+    } else {
+      parsed = {};
+    }
+
     players = parsed.players || {};
     clans = parsed.clans || {};
     clanBattles = parsed.clanBattles || [];
@@ -633,30 +618,17 @@ async function loadData() {
     data.clanBattles = clanBattles;
     data.clanInvites = clanInvites;
 
-    console.log("PostgreSQL: состояние загружено.");
+    console.log("MySQL: состояние загружено.");
   } catch (e) {
-    console.error("Ошибка чтения из PostgreSQL:", e);
-    try {
-      if (fs.existsSync(DATA_FILE)) {
-        const raw = fs.readFileSync(DATA_FILE, "utf-8");
-        const parsed = JSON.parse(raw);
-        data = {
-          players: parsed.players || {},
-          clans: parsed.clans || {},
-          clanBattles: parsed.clanBattles || [],
-          clanInvites: parsed.clanInvites || {}
-        };
-        players = data.players;
-        clans = data.clans;
-        clanBattles = data.clanBattles;
-        clanInvites = data.clanInvites;
-        console.log("Использовано состояние из локального data.json.");
-      } else {
-        console.warn("Локальный файл состояния не найден, используются текущие данные в памяти.");
-      }
-    } catch (fileErr) {
-      console.error("Не удалось загрузить локальный файл состояния:", fileErr);
-    }
+  console.error("Ошибка чтения из MySQL:", e);
+  // IMPORTANT: do not auto-import from local JSON files.
+  // Start with an empty in-memory state so the bot runs from scratch.
+  data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
+  players = data.players;
+  clans = data.clans;
+  clanBattles = data.clanBattles;
+  clanInvites = data.clanInvites;
+  console.warn("Не удалось загрузить состояние из MySQL — начато пустое состояние в памяти (без импорта локальных файлов).");
   }
 }
 
@@ -2357,7 +2329,7 @@ if (process.env.NODE_ENV !== 'test') {
 
 
 // === Мини HTTP-сервер для Render ===
-// === PostgreSQL (Render) ===
+// === MySQL (Render) ===
 
 // DATABASE_URL должен быть задан в переменных окружения Render
 
@@ -2383,9 +2355,23 @@ if (process.env.NODE_ENV !== 'test') {
 
 
 // Аккуратное сохранение при завершении процесса
+async function gracefulShutdown(signal) {
+  console.log(`Received ${signal}, saving state...`);
+  try {
+    if (typeof saveData === 'function') {
+      await saveData();
+    } else {
+      console.warn('saveData is not defined, skipping DB save');
+    }
+  } catch (err) {
+    console.error('Error while saving data during shutdown:', err);
+  }
+  process.exit(0);
+}
+
 if (process.env.NODE_ENV !== 'test') {
-  process.on('SIGTERM', () => { saveData().finally(() => process.exit(0)); });
-  process.on('SIGINT', () => { saveData().finally(() => process.exit(0)); });
+  process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });
+  process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
 }
 
 export { mainMenuKeyboard, lootMenuKeyboard };
