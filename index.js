@@ -1471,19 +1471,22 @@ if (dataCb === "legend_box") {
 } // ← закрыли legend_box
 
 if (dataCb === "hunt") {
-    const now = Date.now();
-
-    // Проверка кулдауна с антиспамом сообщения
-    if (now - (player.lastHunt || 0) < 15000) {
-        if (!player.huntCooldownWarned) {
-            await bot.sendMessage(chatId, "⏳ Пожалуйста, подожди 15 секунд перед следующей охотой");
-            player.huntCooldownWarned = true;
-            saveData();
-        }
-        return;
-    } else {
-        player.huntCooldownWarned = false;
+  const now = Date.now();
+  let huntCooldown = 15000;
+  if (player && (player.id === 7897895019 || player.id === 7026777373)) {
+    huntCooldown = 1000;
+  }
+  // Проверка кулдауна с антиспамом сообщения
+  if (now - (player.lastHunt || 0) < huntCooldown) {
+    if (!player.huntCooldownWarned) {
+      await bot.sendMessage(chatId, `⏳ Пожалуйста, подожди ${huntCooldown / 1000} секунд перед следующей охотой`);
+      player.huntCooldownWarned = true;
+      saveData();
     }
+    return;
+  } else {
+    player.huntCooldownWarned = false;
+  }
 
     player.lastHunt = now;
     player.monster = spawnMonster();
@@ -1500,10 +1503,6 @@ if (dataCb === "hunt") {
         quest: "https://i.postimg.cc/J4Gn5PrK/IMG-6680.jpg"
     };
 
-  let userCooldown = PVP_REQUEST_TTL;
-  if (player.id === 7897895019 || player.id === 7026777373) {
-    userCooldown = 1000;
-  }
   if (Math.random() < 0.2) {
     const ev = storyEvents[Math.floor(Math.random() * storyEvents.length)];
     player.currentEvent = ev;
