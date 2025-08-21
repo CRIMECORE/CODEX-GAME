@@ -164,6 +164,10 @@ let clans = data.clans;
 let clanInvites = data.clanInvites || {};
 let clanBattles = data.clanBattles;
 
+// Prevent concurrent writes under heavy load
+let saving = false;
+let saveAgain = false;
+
   await initPostgres();
   await loadData();
   cleanDatabase();
@@ -534,10 +538,6 @@ async function giveItemToPlayer(chatId, player, item, sourceText = "") {
 }
 
 // ---- Data load/save and migration ----
-
-// Prevent concurrent writes under heavy load
-let saving = false;
-let saveAgain = false;
 
 async function saveData() {
   if (saving) {
