@@ -1,45 +1,35 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import mysql from 'mysql2/promise';
+import { createPool, dbQuery } from '../lib/db.js';
 
 dotenv.config();
 
 const DATA_FILE = path.join(process.cwd(), 'data.json');
+
 async function main() {
-  if (!fs.existsSync(DATA_FILE)) { console.error('data.json not found'); process.exit(1); }
+  if (!fs.existsSync(DATA_FILE)) {
+    console.error('data.json not found');
+    process.exit(1);
+  }
   const raw = fs.readFileSync(DATA_FILE, 'utf-8');
   const parsed = JSON.parse(raw);
   const players = parsed.players || {};
   const clans = parsed.clans || {};
 
-  // Fallback to docker-compose credentials if env vars are not provided
-  const dbHost = process.env.MYSQL_HOST || '127.0.0.1';
-  const dbPort = process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : 3306;
-  const dbUser = process.env.MYSQL_USER && process.env.MYSQL_USER.length ? process.env.MYSQL_USER : 'devuser';
-  const dbPassword = process.env.MYSQL_PASSWORD && process.env.MYSQL_PASSWORD.length ? process.env.MYSQL_PASSWORD : 'devpass';
-  const dbName = process.env.MYSQL_DATABASE || 'codex_game';
+  // ensure pool is created
+  await createPool();
 
-  const pool = await mysql.createPool({
-    host: dbHost,
-    user: dbUser,
-    password: dbPassword,
-    database: dbName,
-    port: dbPort,
-    connectionLimit: 5
-  });
-
-  // Ensure schema exists. mysql2 often has multipleStatements disabled by default,
-  // so split the file into individual statements and execute them one by one.
+  // Ensure schema exists. split statements and run sequentially.
   const schemaSql = fs.readFileSync(path.join(process.cwd(), 'migrations', 'create_mysql_schema.sql'), 'utf-8');
   const statements = schemaSql
-    .split(/;\s*$/m) // split by semicolon at line end
+    .split(/;\s*$/m)
     .map(s => s.trim())
     .filter(s => s.length > 0 && !s.startsWith('--'));
 
   for (const stmt of statements) {
     try {
-      await pool.query(stmt);
+      await dbQuery(stmt);
     } catch (err) {
       console.warn('Schema statement failed (continuing):', err.message);
     }
@@ -47,10 +37,13 @@ async function main() {
 
   // Insert clans
   for (const [cid, c] of Object.entries(clans)) {
-    await pool.query('INSERT INTO clans (id, name, points) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), points = VALUES(points)', [Number(cid), c.name || null, c.points || 0]);
+    await dbQuery(
+      'INSERT INTO clans (id, name, points) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), points = VALUES(points)',
+      [Number(cid), c.name || null, c.points || 0]
+    );
     if (Array.isArray(c.members)) {
       for (const pid of c.members) {
-        await pool.query('INSERT IGNORE INTO clan_members (clan_id, player_id) VALUES (?, ?)', [Number(cid), Number(pid)]);
+        await dbQuery('INSERT IGNORE INTO clan_members (clan_id, player_id) VALUES (?, ?)', [Number(cid), Number(pid)]);
       }
     }
   }
@@ -73,7 +66,7 @@ async function main() {
     const lastHunt = p.lastHunt || null;
     const lastGiftTime = p.lastGiftTime || null;
 
-    await pool.query(
+    await dbQuery(
       `INSERT INTO players (id, username, name, hp, max_hp, infection, clan_id, inventory, monster, pending_drop, pvp, pvp_wins, pvp_losses, last_hunt_ms, last_gift_time_ms)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE username=VALUES(username), name=VALUES(name), hp=VALUES(hp), max_hp=VALUES(max_hp), infection=VALUES(infection), clan_id=VALUES(clan_id), inventory=VALUES(inventory), monster=VALUES(monster), pending_drop=VALUES(pending_drop), pvp=VALUES(pvp), pvp_wins=VALUES(pvp_wins), pvp_losses=VALUES(pvp_losses), last_hunt_ms=VALUES(last_hunt_ms), last_gift_time_ms=VALUES(last_gift_time_ms)`,

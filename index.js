@@ -10,6 +10,7 @@ import fetch from 'node-fetch';
 import http from 'http';
 
 import mysql from 'mysql2/promise';
+import { dbQuery, createPool } from './lib/db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,11 +38,7 @@ const poolConfig = process.env.MYSQL_URL
       queueLimit: 0
     };
 
-let pool;
-async function createPool() {
-  if (!pool) pool = await mysql.createPool(poolConfig);
-  return pool;
-}
+// use centralized dbQuery/createPool from lib/db.js
 
 function normalizeName(str) {
   return String(str || '')
@@ -556,9 +553,8 @@ async function saveData() {
     data.clans = clans;
     data.clanBattles = clanBattles;
     data.clanInvites = clanInvites;
-    const p = await createPool();
     // MySQL: use JSON column and ON DUPLICATE KEY UPDATE
-    await p.query(
+    await dbQuery(
       `INSERT INTO bot_state (id, state, updated_at)
        VALUES (?, ? , CURRENT_TIMESTAMP)
        ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = CURRENT_TIMESTAMP`,
@@ -585,8 +581,7 @@ async function saveData() {
 
 async function loadData() {
   try {
-  const p = await createPool();
-  const [rows] = await p.query("SELECT state FROM bot_state WHERE id = ?", [1]);
+  const [rows] = await dbQuery("SELECT state FROM bot_state WHERE id = ?", [1]);
   if (!rows || rows.length === 0) {
       // Попробуем засеять из локального JSON
       try {
@@ -603,7 +598,7 @@ async function loadData() {
           clans = data.clans;
           clanBattles = data.clanBattles;
           clanInvites = data.clanInvites;
-          await p.query(
+          await dbQuery(
             "INSERT INTO bot_state (id, state) VALUES (?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
             [1, JSON.stringify(data)]
           );
@@ -619,7 +614,7 @@ async function loadData() {
       clans = data.clans;
       clanBattles = data.clanBattles;
       clanInvites = data.clanInvites;
-      await p.query(
+      await dbQuery(
         "INSERT INTO bot_state (id, state) VALUES (?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
         [1, JSON.stringify(data)]
       );
@@ -2368,9 +2363,8 @@ if (process.env.NODE_ENV !== 'test') {
 
 
 async function initMySQL() {
-  const p = await createPool();
   // MySQL doesn't have JSONB/timestamptz; use JSON and DATETIME
-  await p.query(`
+  await dbQuery(`
     CREATE TABLE IF NOT EXISTS bot_state (
       id INT PRIMARY KEY,
       state JSON NOT NULL,
