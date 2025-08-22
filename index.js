@@ -945,6 +945,32 @@ setInterval(cleanExpiredInvites, 60 * 1000);
 
 
 
+// /admingive <item name> — admin-only self-give
+bot.onText(/\/admingive(?:@\w+)?\s+(.+)/i, async (msg, match) => {
+  const chatId = msg.chat.id;
+  try {
+    if (msg.from.id !== ALLOWED_USER_ID) {
+      return bot.sendMessage(chatId, "❌ Команда доступна только админу.");
+    }
+    const player = ensurePlayer(msg.from);
+    if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
+
+    const query = (match && match[1] ? match[1] : "").trim();
+    if (!query) {
+      return bot.sendMessage(chatId, "Использование: /admingive <точное имя предмета>");
+    }
+
+    const item = findItemByName(query);
+    if (!item) {
+      return bot.sendMessage(chatId, "❌ Предмет не найден. Проверь точное имя (учитывается регистр и пробелы).");
+    }
+
+    await giveItemToPlayer(chatId, player, item, "🛠 Админ-выдача");
+  } catch (e) {
+    console.error("/admingive error:", e);
+    bot.sendMessage(chatId, "Произошла ошибка при выдаче предмета.");
+  }
+});
 
 
 // /acceptbattle — принять клановую битву
