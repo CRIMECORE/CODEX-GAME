@@ -1855,7 +1855,7 @@ if (dataCb === "attack") {
     const sorted = Object.values(players).sort((a,b) => (b.infection||0) - (a.infection||0));
     let text = "🏆 Таблица лидеров:\n\n";
     sorted.slice(0,10).forEach((p,i) => {
-      let displayName = p.username === "thisisforgotten" ? `[DEV] ${escMd(p.username)}` : escMd(p.username);
+      let displayName = p.username === "thisisforgotten" ? `(DEV) ${escMd(p.username)}` : escMd(p.username);
       text += `${i+1}. ${displayName} — ${p.infection||0}☣️ (PvP: ${p.pvpWins||0}/${p.pvpLosses||0})\n`;
     });    
     const rank = sorted.findIndex(p => p.id === player.id) + 1;
