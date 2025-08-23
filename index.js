@@ -464,78 +464,76 @@ const LEGENDARY_NAMES = [
 
 
 const storyEvents = [
-  // ... (копируем точно как в старом коде)
   {
     title: "Сирена в темноте",
     text: "Ты слышишь тихий женский голос, зовущий на помощь из подземного перехода.",
     good: "Ты спас девушку — она благодарит тебя и передаёт небольшой подарок.",
     bad: "Это оказалась бракованная аниме-девочка — она напала на тебя, но ты успел сбежать.",
-    badEffect: { type: "lose_points", amount: 50 }
+    badEffect: { type: "lose_item", slot: "helmet" }
   },
   {
     title: "Визитка с розой",
     text: "На тротуаре лежит визитка с золотой розой и адресом.",
     good: "Адрес привёл к тайнику с ценным оружием.",
     bad: "Адрес оказался ловушкой вербовщиков — пришлось срочно убегать.",
-    badEffect: { type: "lose_item", slot: "weapon" }
+    badEffect: { type: "lose_points", amount: 120 }
   },
   {
     title: "Запах духов",
     text: "В переулке пахнет сладкими духами, но никого не видно.",
     good: "Девушка пряталась от охотников и подарила тебе редкую вещь.",
     bad: "Монстр, маскирующийся под девушку, внезапно напал — но ты убежал.",
-    badEffect: { type: "lose_item", slot: "armor" }
+    badEffect: { type: "lose_points", amount: 90 }
   },
   {
     title: "Серебряный фургон",
     text: "Мимо проезжает фургон с затемнёнными окнами, слышны женские крики.",
     good: "Ты успел заблокировать путь и спасти девушку.",
     bad: "Это была охрана лаборатории — ты едва ушёл живым.",
-    badEffect: { type: "lose_points", amount: 100 }
+    badEffect: { type: "lose_item", slot: "armor" }
   },
   {
     title: "Стеклянная капсула",
     text: "У стены стоит треснувшая капсула, внутри — полусознанная девушка.",
     good: "Ты помог ей выбраться, она вручила необычный предмет.",
     bad: "Внутри был мутант, но ты успел скрыться.",
-    badEffect: { type: "lose_item", slot: "helmet" }
+    badEffect: { type: "lose_points", amount: 60 }
   },
   {
     title: "Старый дневник",
     text: "На лавочке лежит дневник с записями о похищениях.",
     good: "Записи вывели тебя к тайнику с ценным предметом.",
     bad: "Это была приманка — охотники чуть не поймали тебя.",
-    badEffect: { type: "lose_points", amount: 30 }
+    badEffect: { type: "lose_item", slot: "mutation" }
   },
   {
     title: "Шёпот за спиной",
     text: "Кто-то тихо шепчет твоё имя.",
     good: "Это была выжившая девушка, которая поделилась с тобой находкой.",
     bad: "Это были галлюцинации от газа — ты едва выбрался.",
-    badEffect: { type: "lose_item", slot: "mutation" }
+    badEffect: { type: "lose_points", amount: 40 }
   },
   {
     title: "Разбитое зеркало",
     text: "В подвале — комната с разбитыми зеркалами и запахом крови.",
     good: "Ты нашёл в щели шлем.",
     bad: "На тебя напала отражённая тень, но ты сбежал.",
-    badEffect: { type: "lose_points", amount: 20 }
+    badEffect: { type: "lose_item", slot: "extra" }
   },
   {
     title: "Красная метка",
     text: "Кто-то мелом нарисовал красную метку на стене.",
     good: "Это знак выживших — внутри тайник с гранатами.",
     bad: "Метка привлекла охотников, пришлось уходить.",
-    badEffect: { type: "lose_item", slot: "extra" }
+    badEffect: { type: "lose_points", amount: 200 }
   },
   {
     title: "Вечеринка с отборами",
     text: "В клубе проходит вечеринка с 'кастингом' девушек.",
     good: "Ты сорвал отбор и спас одну из них.",
     bad: "Тебя узнали и выгнали.",
-    badEffect: { type: "lose_points", amount: 10 }
-  },
-// Универсальная обработка badEffect для storyEvents
+    badEffect: { type: "lose_item", slot: "weapon" }
+  }
 ];
 
 function applyBadEffect(player, badEffect) {
@@ -1535,7 +1533,7 @@ if (dataCb === "hunt") {
         quest: "https://i.postimg.cc/J4Gn5PrK/IMG-6680.jpg"
     };
 
-  if (Math.random() < 0.2) {
+  if (Math.random() < 0.075) {
     const ev = storyEvents[Math.floor(Math.random() * storyEvents.length)];
     player.currentEvent = ev;
     saveData();
