@@ -1163,7 +1163,7 @@ async function startClanBattle(clanAId, clanBId, chatId) {
           return;
         } else {
           await bot.sendMessage(chatId, `🔁 На поле за ${escMd(clanB.name)} выходит следующий боец: @${fighterB.username}`);
-          setTimeout(processRound, 3000);
+          setTimeout(processRound, 5000);
           return;
         }
       }
