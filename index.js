@@ -2150,7 +2150,7 @@ function startPvpFight(challenger, opponent, chatId) {
       // switch turn
       turn = (turn === 'A') ? 'B' : 'A';
       saveData();
-      setTimeout(processRound, 1500);
+      setTimeout(processRound, 5000);
     } catch (e) {
       console.error("startPvpFight error:", e);
       try { bot.sendMessage(chatId, "Ошибка в PvP: " + String(e)); } catch {}
@@ -2161,7 +2161,7 @@ function startPvpFight(challenger, opponent, chatId) {
   }
 
   // first tick
-  setTimeout(processRound, 800);
+  setTimeout(processRound, 5000);
 }
 
 // /pvp [target] - without args: create a pvp request; with target: accept challenge by that target
