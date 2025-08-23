@@ -272,7 +272,26 @@ let saveAgain = false;
   // === /Патч безопасного редактирования сообщений ===
 
 function escMd(str) {
-  return String(str || '').replace(/[\\_\\*\\[\\]\\(\\)~`>#+=|{}.!-]/g, '\\\\$&');
+  if (!str) return '';
+  return String(str)
+    .replace(/\_/g, '\\_')
+    .replace(/\*/g, '\\*')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+    .replace(/\~/g, '\\~')
+    .replace(/\`/g, '\\`')
+    .replace(/\>/g, '\\>')
+    .replace(/\#/g, '\\#')
+    .replace(/\+/g, '\\+')
+    .replace(/\-/g, '\\-')
+    .replace(/\=/g, '\\=')
+    .replace(/\|/g, '\\|')
+    .replace(/\{/g, '\\{')
+    .replace(/\}/g, '\\}')
+    .replace(/\./g, '\\.')
+    .replace(/\!/g, '\\!');
 }
 
 function ensurePlayer(user) {
