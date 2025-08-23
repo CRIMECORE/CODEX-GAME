@@ -1551,7 +1551,7 @@ if (dataCb === "hunt") {
         quest: "https://i.postimg.cc/J4Gn5PrK/IMG-6680.jpg"
     };
 
-  if (Math.random() < 0.075) {
+  if (Math.random() < 0.05) {
     const ev = storyEvents[Math.floor(Math.random() * storyEvents.length)];
     player.currentEvent = ev;
     saveData();
