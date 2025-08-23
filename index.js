@@ -2542,10 +2542,8 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 
-// Аккуратное сохранение при завершении процесса
-if (process.env.NODE_ENV !== 'test') {
-  process.on('SIGTERM', () => { saveData().finally(() => process.exit(0)); });
-  process.on('SIGINT', () => { saveData().finally(() => process.exit(0)); });
-}
+
+process.on('SIGTERM', () => { saveData().finally(() => process.exit(0)); });
+process.on('SIGINT', () => { saveData().finally(() => process.exit(0)); });
 
 export { mainMenuKeyboard, lootMenuKeyboard };
