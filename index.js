@@ -163,7 +163,7 @@ function mainMenuKeyboard() {
       [{ text: "🪦 Лутать тело 📦", callback_data: "loot_menu" }],
       [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
       [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
-      [{ text: "⚔️ PvP", callback_data: "pvp_request" }],
+      [{ text: "⚔️ PvP", callback_data: "pvp_menu" }],
       [{ text: "🏰 Кланы", callback_data: "clans_menu" }]
     ]
   };
@@ -578,6 +578,53 @@ function pickByChance(arr) {
   return null;
 }
 
+function pickRandomItem(items) {
+  const picked = pickByChance(items);
+  if (!picked) return null;
+  const { chance, ...rest } = picked;
+  return { ...rest };
+}
+
+function generateRandomOpponentPlayer() {
+  const randomId = Math.floor(Math.random() * 9_000_000) + 1_000_000;
+  const username = `id${randomId}`;
+
+  const inventory = {
+    armor: pickRandomItem(armorItems),
+    helmet: pickRandomItem(helmetItems),
+    weapon: pickRandomItem(weaponItems),
+    mutation: pickRandomItem(mutationItems),
+    extra: pickRandomItem(extraItems)
+  };
+
+  const opponent = {
+    id: 7_000_000_000 + randomId,
+    username,
+    name: username,
+    hp: 100,
+    maxHp: 100,
+    infection: Math.floor(Math.random() * 5000),
+    clanId: null,
+    inventory,
+    monster: null,
+    monsterStun: 0,
+    damageBoostTurns: 0,
+    damageReductionTurns: 0,
+    radiationBoost: false,
+    firstAttack: true,
+    lastHunt: 0,
+    pendingDrop: null,
+    pvpWins: Math.floor(Math.random() * 50),
+    pvpLosses: Math.floor(Math.random() * 50),
+    lastGiftTime: 0,
+    huntCooldownWarned: false
+  };
+
+  applyArmorHelmetBonuses(opponent);
+  opponent.hp = opponent.maxHp;
+  return opponent;
+}
+
 async function editOrSend(chatId, messageId, text, options = {}) {
   try {
     if (messageId) {
@@ -601,9 +648,19 @@ function mainMenuKeyboard() {
       [{ text: "🪦 Лутать тело 📦", callback_data: "loot_menu" }],
       [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
       [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
-      [{ text: "⚔️ PvP", callback_data: "pvp_request" }],
+      [{ text: "⚔️ PvP", callback_data: "pvp_menu" }],
       [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
       [{ text: "📢 Канал", url: "https://t.me/crimecorebotgame" }]
+    ]
+  };
+}
+
+function pvpMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "💬 PvP в чате", callback_data: "pvp_chat" }],
+      [{ text: "🤖 Поиск противника", callback_data: "pvp_find" }],
+      [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
 }
@@ -1344,7 +1401,7 @@ bot.on("callback_query", async (q) => {
     const chat = q.message && q.message.chat ? q.message.chat : null;
     const chatType = chat && chat.type ? chat.type : null;
     const isGroupType = chatType === "group" || chatType === "supergroup";
-    const allowedInGroup = new Set(["pvp_request", "clans_menu"]);
+    const allowedInGroup = new Set(["pvp_request", "pvp_menu", "pvp_chat", "pvp_find", "clans_menu"]);
     if (isGroupType && !allowedInGroup.has(dataCb)) {
       const chatIdCurrent = chat.id;
       const warnText = "Эти функции доступны только в личном сообщении бота, нажми на мою аватарку и играй!";
@@ -1358,8 +1415,12 @@ bot.on("callback_query", async (q) => {
   // === /Ограничение кнопок ===
     let player = ensurePlayer(user);
 // --- Обработчики для кнопок главного меню: PvP и Кланы ---
-if (dataCb === "pvp_request") {
-  // Поведение как при /pvp_request
+if (dataCb === "pvp_request" || dataCb === "pvp_menu") {
+  await editOrSend(chatId, messageId, "⚔️ Выберите режим PvP:", { reply_markup: pvpMenuKeyboard() });
+  return;
+}
+
+if (dataCb === "pvp_chat") {
   const keyById = String(user.id);
   const reqObj = { challengerId: user.id, username: user.username || null, chatId, ts: Date.now() };
   pvpRequests[keyById] = reqObj;
@@ -1367,8 +1428,44 @@ if (dataCb === "pvp_request") {
     pvpRequests[`@${user.username}`] = reqObj;
     pvpRequests[user.username] = reqObj;
   }
-  // Обновляем сообщение или отправляем новое
-  await editOrSend(chatId, messageId, `🏹 @${user.username || `id${user.id}`} ищет соперника! Чтобы принять — /pvp @${user.username || user.id}\nЗаявка действует ${Math.floor(PVP_REQUEST_TTL/1000)} секунд.`);
+
+  const requestText = `🏹 @${user.username || `id${user.id}`} ищет соперника!\nЧтобы принять — /pvp @${user.username || user.id}\nЗаявка действует ${Math.floor(PVP_REQUEST_TTL/1000)} секунд.`;
+  const img = await generateInventoryImage(player);
+  if (img) {
+    await bot.sendPhoto(chatId, img, { caption: requestText, parse_mode: "Markdown" });
+  } else {
+    await bot.sendMessage(chatId, requestText, { parse_mode: "Markdown" });
+  }
+  return;
+}
+
+if (dataCb === "pvp_find") {
+  if (!player) {
+    await bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
+    return;
+  }
+  if (player.pvp) {
+    await bot.sendMessage(chatId, "Вы уже участвуете в PvP. Дождитесь окончания боя.");
+    return;
+  }
+
+  const searchingMsg = await bot.sendMessage(chatId, "🔍 Поиск соперника...");
+  await new Promise((resolve) => setTimeout(resolve, 2000 + Math.floor(Math.random() * 2000)));
+
+  const opponent = generateRandomOpponentPlayer();
+  const opponentText = `🤖 Найден соперник: @${opponent.username}\nID: ${opponent.id}\n☣️ Заражение: ${opponent.infection}`;
+  const opponentImg = await generateInventoryImage(opponent);
+  if (opponentImg) {
+    await bot.sendPhoto(chatId, opponentImg, { caption: opponentText, parse_mode: "Markdown" });
+  } else {
+    await bot.sendMessage(chatId, opponentText, { parse_mode: "Markdown" });
+  }
+
+  if (searchingMsg && searchingMsg.message_id) {
+    await bot.deleteMessage(chatId, searchingMsg.message_id).catch(() => {});
+  }
+
+  startPvpFight(player, opponent, chatId);
   return;
 }
 
