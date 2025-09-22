@@ -12,6 +12,7 @@ if (envLoadResult?.source === 'fallback' && envLoadResult.loaded) {
 }
 
 let sharp;
+let JimpLib;
 {
   const { module: sharpModule, error: sharpError } = await optionalImport('sharp');
   if (sharpModule) {
@@ -19,6 +20,20 @@ let sharp;
   } else if (sharpError) {
     console.warn('sharp package not found; inventory image generation will be skipped.');
     sharp = null;
+  }
+}
+
+if (!sharp) {
+  try {
+    const { module: jimpModule } = await optionalImport('jimp');
+    if (jimpModule) {
+      JimpLib = jimpModule?.default || jimpModule?.Jimp || jimpModule;
+      if (JimpLib) {
+        console.info('Using jimp for inventory image composition.');
+      }
+    }
+  } catch (jimpError) {
+    console.warn('Failed to load jimp fallback for inventory image composition:', jimpError);
   }
 }
 
@@ -125,8 +140,10 @@ async function generateInventoryImage(player) {
     const resBase = await fetch(baseUrl);
     if (!resBase.ok) throw new Error(`Ошибка загрузки фона`);
     const baseBuf = await resBase.arrayBuffer();
+    const baseBuffer = Buffer.from(baseBuf);
 
     const order = ["mutation", "armor", "weapon", "helmet", "extra", "sign"];
+    const layerBuffers = [];
     for (const key of order) {
       const item = player && player.inventory ? player.inventory[key] : null;
       if (!item || !item.name) continue;
@@ -139,20 +156,32 @@ async function generateInventoryImage(player) {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`Ошибка загрузки ${url}`);
         const buf = await res.arrayBuffer();
-        layers.push({ input: Buffer.from(buf) });
+        const layerBuffer = Buffer.from(buf);
+        layers.push({ input: layerBuffer });
+        layerBuffers.push(layerBuffer);
       } catch (e) {
         console.warn(`Слой ${item.name} пропущен: ${e.message}`);
         continue;
       }
     }
 
-    if (!sharp) {
-      console.warn('sharp is unavailable; returning null inventory image.');
-      return null;
+    if (sharp) {
+      const out = await sharp(baseBuffer).composite(layers).png().toBuffer();
+      return out;
     }
 
-    const out = await sharp(Buffer.from(baseBuf)).composite(layers).png().toBuffer();
-    return out;
+    if (JimpLib) {
+      const baseImage = await JimpLib.read(baseBuffer);
+      for (const layerBuffer of layerBuffers) {
+        const overlay = await JimpLib.read(layerBuffer);
+        baseImage.composite(overlay, 0, 0);
+      }
+      const out = await baseImage.getBufferAsync(JimpLib.MIME_PNG);
+      return out;
+    }
+
+    console.warn('No image compositor available; returning null inventory image.');
+    return null;
   } catch (err) {
     console.error('Ошибка генерации инвентаря:', err);
     return null;
