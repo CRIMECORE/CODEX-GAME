@@ -1,5 +1,16 @@
-import dotenv from 'dotenv';
-dotenv.config();
+try {
+  const dotenvModule = await import('dotenv');
+  const dotenv = dotenvModule?.default || dotenvModule;
+  if (dotenv && typeof dotenv.config === 'function') {
+    dotenv.config();
+  }
+} catch (error) {
+  if (error?.code === 'ERR_MODULE_NOT_FOUND') {
+    console.warn('dotenv package not found; skipping environment configuration.');
+  } else {
+    throw error;
+  }
+}
 
 import TelegramBot from 'node-telegram-bot-api';
 import fs from 'fs';
