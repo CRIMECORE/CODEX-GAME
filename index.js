@@ -15,7 +15,18 @@ try {
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import sharp from 'sharp';
+let sharp;
+try {
+  const sharpModule = await import('sharp');
+  sharp = sharpModule?.default || sharpModule;
+} catch (error) {
+  if (error?.code === 'ERR_MODULE_NOT_FOUND') {
+    console.warn('sharp package not found; inventory image generation will be skipped.');
+    sharp = null;
+  } else {
+    throw error;
+  }
+}
 import fetch from 'node-fetch';
 import http from 'http';
 
@@ -95,6 +106,11 @@ async function generateInventoryImage(player) {
         console.warn(`Слой ${item.name} пропущен: ${e.message}`);
         continue;
       }
+    }
+
+    if (!sharp) {
+      console.warn('sharp is unavailable; returning null inventory image.');
+      return null;
     }
 
     const out = await sharp(Buffer.from(baseBuf)).composite(layers).png().toBuffer();
