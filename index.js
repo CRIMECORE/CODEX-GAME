@@ -1,87 +1,90 @@
-try {
-  const dotenvModule = await import('dotenv');
-  const dotenv = dotenvModule?.default || dotenvModule;
-  if (dotenv && typeof dotenv.config === 'function') {
-    dotenv.config();
-  }
-} catch (error) {
-  if (error?.code === 'ERR_MODULE_NOT_FOUND') {
-    console.warn('dotenv package not found; skipping environment configuration.');
-  } else {
-    throw error;
-  }
-}
-
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import http from 'http';
+
+import { ensureEnvConfig } from './lib/env.js';
+import { optionalImport } from './lib/optionalImport.js';
+
+const envLoadResult = await ensureEnvConfig();
+if (envLoadResult?.source === 'fallback' && envLoadResult.loaded) {
+  console.info('Loaded environment variables using built-in parser.');
+}
+
 let sharp;
-try {
-  const sharpModule = await import('sharp');
-  sharp = sharpModule?.default || sharpModule;
-} catch (error) {
-  if (error?.code === 'ERR_MODULE_NOT_FOUND') {
+{
+  const { module: sharpModule, error: sharpError } = await optionalImport('sharp');
+  if (sharpModule) {
+    sharp = sharpModule?.default || sharpModule;
+  } else if (sharpError) {
     console.warn('sharp package not found; inventory image generation will be skipped.');
     sharp = null;
-  } else {
-    throw error;
   }
 }
+
 let fetchImpl = globalThis.fetch;
 if (!fetchImpl) {
-  try {
-    const fetchModule = await import('node-fetch');
+  const { module: fetchModule, error: fetchError } = await optionalImport('node-fetch');
+  if (fetchModule) {
     fetchImpl = fetchModule?.default || fetchModule;
-  } catch (error) {
-    if (error?.code === 'ERR_MODULE_NOT_FOUND') {
-      console.warn(
-        'Neither global fetch nor node-fetch are available; remote requests will fail.'
-      );
-    } else {
-      throw error;
-    }
+  } else if (fetchError) {
+    console.warn('Neither global fetch nor node-fetch are available; remote requests will fail.');
   }
 }
-const fetch = fetchImpl ? (...args) => fetchImpl(...args) : async () => {
-  throw new Error('Fetch API is unavailable.');
-};
-
-import http from 'http';
+const fetch = fetchImpl
+  ? (...args) => fetchImpl(...args)
+  : async () => {
+      throw new Error('Fetch API is unavailable.');
+    };
 
 let TelegramBotCtorCache;
 
 async function loadTelegramBotCtor() {
   if (TelegramBotCtorCache) return TelegramBotCtorCache;
+  const { module: telegramModule, error: telegramError } = await optionalImport('node-telegram-bot-api');
+  if (telegramModule) {
+    TelegramBotCtorCache = telegramModule?.default || telegramModule;
+    return TelegramBotCtorCache;
+  }
+
+  if (telegramError) {
+    console.warn(
+      "node-telegram-bot-api not found; falling back to grammy compatibility layer."
+    );
+  }
+
+  const compatModule = await import('./lib/telegramBotCompat.js');
+  if (compatModule?.isGrammyAvailable?.()) {
+    TelegramBotCtorCache = compatModule?.default || compatModule.TelegramBotCompat;
+    return TelegramBotCtorCache;
+  }
+
+  const reason = compatModule?.getGrammyLoadError?.();
+  if (reason) {
+    console.warn(
+      `grammy is unavailable (${reason.message || reason}); using built-in HTTP Telegram client.`
+    );
+  } else {
+    console.warn('grammy is unavailable; using built-in HTTP Telegram client.');
+  }
+
   try {
-    const module = await import('node-telegram-bot-api');
-    TelegramBotCtorCache = module?.default || module;
-  } catch (error) {
-    if (error?.code === 'ERR_MODULE_NOT_FOUND') {
-      console.warn(
-        "node-telegram-bot-api not found; falling back to grammy compatibility layer."
-      );
-      const compatModule = await import('./lib/telegramBotCompat.js');
-      if (compatModule?.isGrammyAvailable?.()) {
-        TelegramBotCtorCache = compatModule?.default || compatModule.TelegramBotCompat;
-      } else {
-        const reason = compatModule?.getGrammyLoadError?.();
-        if (reason) {
-          console.warn(
-            `grammy is unavailable (${reason.message || reason}); using no-op Telegram bot.`
-          );
-        } else {
-          console.warn('grammy is unavailable; using no-op Telegram bot.');
-        }
-        const NoopBotCtor = compatModule?.TelegramBotNoop;
-        if (NoopBotCtor) {
-          TelegramBotCtorCache = NoopBotCtor;
-        } else {
-          throw new Error('No Telegram bot implementation available.');
-        }
-      }
-    } else {
-      throw error;
+    const simpleModule = await import('./lib/simpleTelegramBot.js');
+    const SimpleTelegramBot = simpleModule?.default;
+    if (SimpleTelegramBot) {
+      TelegramBotCtorCache = SimpleTelegramBot;
+      return TelegramBotCtorCache;
     }
+  } catch (simpleError) {
+    console.error('Failed to load built-in Telegram client:', simpleError);
+  }
+
+  const NoopBotCtor = compatModule?.TelegramBotNoop;
+  if (NoopBotCtor) {
+    console.warn('Falling back to no-op Telegram bot implementation.');
+    TelegramBotCtorCache = NoopBotCtor;
+  } else {
+    throw new Error('No Telegram bot implementation available.');
   }
   return TelegramBotCtorCache;
 }
@@ -429,7 +432,7 @@ async function startBot() {
   await loadData();
   console.log("Бот запущен ✅");
 
-  bot = new TelegramBot(TOKEN, { polling: true });
+  bot = new TelegramBot(TOKEN, { polling: true, httpFetch: fetch });
 
   const ALLOWED_USER_ID = 7897895019;
 
