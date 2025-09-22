@@ -237,6 +237,8 @@ function ensurePlayer(user) {
       hp: 100,
       maxHp: 100,
       infection: 0,
+      survivalDays: 0,
+      bestSurvivalDays: 0,
       clanId: null,
       inventory: { armor: null, helmet: null, weapon: null, mutation: null, extra: null, sign: null },
       monster: null,
@@ -261,6 +263,9 @@ function ensurePlayer(user) {
     if (p.username !== newUsername) p.username = newUsername;
     const newName = user.first_name || newUsername;
     if (p.name !== newName) p.name = newName;
+    if (!Number.isFinite(p.survivalDays)) p.survivalDays = 0;
+    if (!Number.isFinite(p.bestSurvivalDays)) p.bestSurvivalDays = p.survivalDays;
+    if (p.bestSurvivalDays < p.survivalDays) p.bestSurvivalDays = p.survivalDays;
   }
   return p;
 }
@@ -472,6 +477,8 @@ function cleanDatabase() {
     p.hp ??= 100;
     p.maxHp ??= p.hp;
     p.infection ??= 0;
+    p.survivalDays ??= 0;
+    p.bestSurvivalDays ??= p.survivalDays;
     p.clanId ??= null;
     p.monster ??= null;
     p.monsterStun ??= 0;
@@ -499,6 +506,71 @@ function applyArmorHelmetBonuses(player) {
   player.maxHp = 100 + armorHp;
   if (typeof player.hp !== 'number') player.hp = player.maxHp;
   if (player.hp > player.maxHp) player.hp = player.maxHp;
+}
+
+function formatDaysWord(value) {
+  const abs = Math.abs(value) % 100;
+  const last = abs % 10;
+  if (abs >= 11 && abs <= 14) return "дней";
+  if (last === 1) return "день";
+  if (last >= 2 && last <= 4) return "дня";
+  return "дней";
+}
+
+function formatSurvivalTotal(value) {
+  const safe = Number.isFinite(value) ? value : 0;
+  return `${safe} ${formatDaysWord(safe)}`;
+}
+
+function grantSurvivalDay(player) {
+  if (!player) return "";
+  if (!Number.isFinite(player.survivalDays)) player.survivalDays = 0;
+  if (!Number.isFinite(player.bestSurvivalDays)) player.bestSurvivalDays = 0;
+  player.survivalDays += 1;
+  if (player.survivalDays > player.bestSurvivalDays) {
+    player.bestSurvivalDays = player.survivalDays;
+  }
+  return `🗓 Вы получили +1 день выживания, теперь у вас ${formatSurvivalTotal(player.survivalDays)} выживания.`;
+}
+
+function resetSurvivalProgress(player) {
+  if (!player) return;
+  player.survivalDays = 0;
+  if (!Number.isFinite(player.bestSurvivalDays)) {
+    player.bestSurvivalDays = 0;
+  }
+}
+
+function compareBySurvival(a, b) {
+  const bestA = Number.isFinite(a?.bestSurvivalDays) ? a.bestSurvivalDays : 0;
+  const bestB = Number.isFinite(b?.bestSurvivalDays) ? b.bestSurvivalDays : 0;
+  if (bestB !== bestA) return bestB - bestA;
+  const currentA = Number.isFinite(a?.survivalDays) ? a.survivalDays : 0;
+  const currentB = Number.isFinite(b?.survivalDays) ? b.survivalDays : 0;
+  if (currentB !== currentA) return currentB - currentA;
+  const infectionA = Number.isFinite(a?.infection) ? a.infection : 0;
+  const infectionB = Number.isFinite(b?.infection) ? b.infection : 0;
+  return infectionB - infectionA;
+}
+
+function buildSurvivalLeaderboardText(currentPlayer) {
+  const sorted = Object.values(players).sort(compareBySurvival);
+  let text = "🏆 Таблица лидеров по дням выживания:\n\n";
+  sorted.slice(0, 10).forEach((p, i) => {
+    const baseName = p.username ? p.username : (p.name || `id${p.id}`);
+    const escapedName = escMd(baseName);
+    const displayName = p.username === "thisisforgotten" ? `(Developer) ${escapedName}` : escapedName;
+    const best = Number.isFinite(p?.bestSurvivalDays) ? p.bestSurvivalDays : 0;
+    const current = Number.isFinite(p?.survivalDays) ? p.survivalDays : 0;
+    text += `${i + 1}. ${displayName} — рекорд ${formatSurvivalTotal(best)} выживания (сейчас: ${formatSurvivalTotal(current)})\n`;
+  });
+  const rank = sorted.findIndex(p => currentPlayer && p.id === currentPlayer.id) + 1;
+  const currentDays = Number.isFinite(currentPlayer?.survivalDays) ? currentPlayer.survivalDays : 0;
+  const bestDays = Number.isFinite(currentPlayer?.bestSurvivalDays) ? currentPlayer.bestSurvivalDays : 0;
+  text += `\nТвой текущий результат: ${formatSurvivalTotal(currentDays)} выживания`;
+  text += `\nТвой рекорд: ${formatSurvivalTotal(bestDays)} выживания`;
+  text += `\nТвоя позиция: ${rank > 0 ? rank : "—"} / ${sorted.length}`;
+  return text;
 }
 
 // --- Config constants ---
@@ -1098,6 +1170,7 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
 
   if (player.hp <= 0) {
     player.infection = Math.max(0, (player.infection || 0) - 400);
+    resetSurvivalProgress(player);
     applyArmorHelmetBonuses(player);
     player.hp = player.maxHp;
     player.currentDanger = null;
@@ -1108,7 +1181,8 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
       "",
       `${escMd(scenario.failure)}`,
       "",
-      "☣️ Ты потерял 400 заражения."
+      "☣️ Ты потерял 400 заражения.",
+      "🗓 Дни выживания обнулились."
     ].join("\n");
     await bot.editMessageCaption(failureText, {
       chat_id: chatId,
@@ -1130,6 +1204,10 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
       "",
       "☣️ Ты получил 400 заражения."
     ].join("\n");
+    const survivalMessage = grantSurvivalDay(player);
+    if (survivalMessage) {
+      successText += `\n\n${survivalMessage}`;
+    }
     let replyMarkup = { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] };
     if (Math.random() < DANGER_EVENT_ITEM_CHANCE) {
       const dropPool = [
@@ -2538,7 +2616,7 @@ if (dataCb === "attack") {
         }
 
         applyArmorHelmetBonuses(player);
-        player.hp = player.maxHp;
+        const survivalMessage = grantSurvivalDay(player);
         player.monster = null;
         player.monsterStun = 0;
         resetPlayerSignFlags(player);
@@ -2551,6 +2629,9 @@ if (dataCb === "attack") {
         saveData();
         const victoryPrefix = player.monster.type === "boss" ? "💀 Ты уничтожил босса CRIMECORE" : "💀 Ты убил Подопытного";
         let winText = `${victoryPrefix} и получил +${infGain} заражения☣️!\nТекущий уровень заражения: ${player.infection}`;
+        if (survivalMessage) {
+            winText += `\n${survivalMessage}`;
+        }
         if (player.pendingDrop) {
             winText += `\n\n🎁 Выпало: ${player.pendingDrop.name}`;
             if (player.pendingDrop.kind === "sign") {
@@ -2608,6 +2689,7 @@ if (dataCb === "attack") {
         if (player.hp <= 0) {
             const loss = Math.floor(Math.random() * 26) + 5;
             player.infection = Math.max(0, player.infection - loss);
+            resetSurvivalProgress(player);
             applyArmorHelmetBonuses(player);
             player.hp = player.maxHp;
             player.monster = null;
@@ -2620,7 +2702,7 @@ if (dataCb === "attack") {
             }
 
             saveData();
-            await bot.sendMessage(chatId, `${events.join("\n")}\n\n☠️ Ты умер и потерял ${loss} уровня заражения☣️. Твой уровень: ${player.infection}`, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+            await bot.sendMessage(chatId, `${events.join("\n")}\n\n☠️ Ты умер и потерял ${loss} уровня заражения☣️. Твой уровень: ${player.infection}\n🗓 Дни выживания обнулились.`, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
             return;
         }
     }
@@ -2651,6 +2733,10 @@ if (dataCb === "attack") {
     const infectionGain = Math.floor(Math.random() * 151) + 100; // 100–250
     player.infection = (player.infection || 0) + infectionGain;
     text = `✅ ${ev.good}\n\n☣️ Ты получил ${infectionGain} заражения.`;
+    const survivalMessage = grantSurvivalDay(player);
+    if (survivalMessage) {
+      text += `\n\n${survivalMessage}`;
+    }
 
     // 15% шанс предмета
     if (Math.random() < 0.15) {
@@ -2765,14 +2851,7 @@ if (dataCb === "attack") {
   }
 
   if (dataCb === "leaderboard") {
-    const sorted = Object.values(players).sort((a,b) => (b.infection||0) - (a.infection||0));
-    let text = "🏆 Таблица лидеров:\n\n";
-    sorted.slice(0,10).forEach((p,i) => {
-      let displayName = p.username === "thisisforgotten" ? `(Developer) ${escMd(p.username)}` : escMd(p.username);
-      text += `${i+1}. ${displayName} — ${p.infection||0}☣️ (PvP: ${p.pvpWins||0}/${p.pvpLosses||0})\n`;
-    });    
-    const rank = sorted.findIndex(p => p.id === player.id) + 1;
-    text += `\nТвой уровень: ${player.infection}\nТвоя позиция: ${rank>0 ? rank : "—"} / ${sorted.length}`;
+    const text = buildSurvivalLeaderboardText(player);
     await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
     return;
   }
@@ -3268,13 +3347,7 @@ bot.onText(/\/leaderboard/, (msg) => {
   const chatId = msg.chat.id;
   const player = ensurePlayer(msg.from);
   if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
-  const sorted = Object.values(players).sort((a,b) => (b.infection||0) - (a.infection||0));
-  let text = "🏆 Таблица лидеров:\n\n";
-  sorted.slice(0,10).forEach((p,i) =>
-    text += `${i+1}. ${escMd(p.username)} — ${p.infection||0}☣️ (PvP: ${p.pvpWins||0}/${p.pvpLosses||0})\n`
-  );
-  const rank = sorted.findIndex(p => p.id === player.id) + 1;
-  text += `\nТвой уровень: ${player.infection}\nТвоя позиция: ${rank>0 ? rank : "—"} / ${sorted.length}`;
+  const text = buildSurvivalLeaderboardText(player);
   bot.sendMessage(chatId, text, { parse_mode: "Markdown" });
 });
 
