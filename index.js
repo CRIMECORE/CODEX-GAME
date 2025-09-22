@@ -239,6 +239,10 @@ const fsp = fs.promises;
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
 const BACKUP_FILE = process.env.DATA_BACKUP_FILE || path.join(__dirname, "data_backup.json");
 
+const KEEPALIVE_URL =
+  process.env.KEEPALIVE_URL || process.env.RENDER_EXTERNAL_URL || process.env.PING_URL || '';
+const KEEPALIVE_INTERVAL_MS = Number.parseInt(process.env.KEEPALIVE_INTERVAL_MS, 10) || 5 * 60 * 1000;
+
 const DEFAULT_STATE = () => ({
   players: {},
   clans: {},
@@ -3118,7 +3122,12 @@ bot.on("message", async (msg) => {
 });
 
   // Auto-save every 30s
-  setInterval(saveData, 30000);
+  if (process.env.NODE_ENV !== 'test') {
+    const autosaveInterval = setInterval(saveData, 30000);
+    if (typeof autosaveInterval.unref === 'function') {
+      autosaveInterval.unref();
+    }
+  }
 
 
 
@@ -3567,12 +3576,43 @@ bot.onText(/\/acceptbattle/, (msg) => {
 
 // === Anti-idle пинг ===
 // Используем встроенный fetch в Node.js 18+
-if (process.env.NODE_ENV !== 'test') {
-  setInterval(() => {
-    fetch(process.env.RENDER_EXTERNAL_URL || "https://crimecore-bot.onrender.com")
-      .then(() => console.log("Пинг OK"))
-      .catch(err => console.error("Пинг не удался:", err));
-  }, 5 * 60 * 1000);
+async function pingKeepAlive(url, timeoutMs = 10000) {
+  if (!url) return;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { method: 'GET', signal: controller.signal });
+    if (response.ok) {
+      console.log('Пинг OK');
+    } else {
+      console.warn(`Пинг не удался: статус ${response.status}`);
+    }
+  } catch (err) {
+    const cause = err?.cause;
+    if (cause && cause.code === 'UND_ERR_HEADERS_TIMEOUT') {
+      console.warn('Пинг не удался: таймаут ожидания заголовков');
+    } else if (err?.name === 'AbortError') {
+      console.warn('Пинг не удался: истек таймаут ожидания ответа');
+    } else {
+      console.warn('Пинг не удался:', err?.message || err);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+if (process.env.NODE_ENV !== 'test' && KEEPALIVE_URL) {
+  const keepAliveTimer = setInterval(() => {
+    pingKeepAlive(KEEPALIVE_URL).catch((err) => {
+      console.warn('Пинг не удался:', err?.message || err);
+    });
+  }, KEEPALIVE_INTERVAL_MS);
+  if (typeof keepAliveTimer.unref === 'function') {
+    keepAliveTimer.unref();
+  }
+} else if (process.env.NODE_ENV !== 'test' && !KEEPALIVE_URL) {
+  console.info('Keep-alive ping disabled: no KEEPALIVE_URL configured.');
 }
 
 
