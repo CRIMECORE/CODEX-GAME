@@ -387,6 +387,7 @@ const CLAN_BATTLE_COUNTDOWN_MS = 20000; // 20 seconds
 // --- Items (same as before) ---
 const armorItems = [
   { name: "Бронежилет химзащита", hp: 20, chance: 25 },
+  { name: "Броня бинты", hp: 30, chance: 22 },
   { name: "Бронежилет из жертв", hp: 40, chance: 20 },
   { name: "Бронежилет любительский", hp: 50, chance: 18 },
   { name: "Бронежилет базовый", hp: 100, chance: 15 },
@@ -395,7 +396,9 @@ const armorItems = [
   { name: "Бронежилет CRIMECORE", hp: 500, chance: 4 },
   { name: "Бронежилет мутации", hp: 550, chance: 2 },
   { name: "Бронежилет хим. вещества", hp: 600, chance: 1.5 },
-  { name: "Бронежилет протез", hp: 800, chance: 1 }
+  { name: "Бронежилет протез", hp: 800, chance: 1 },
+  { name: "Броня хай-тек", hp: 1100, chance: 0.5 },
+  { name: "Броня скелет", hp: 1400, chance: 0.3 }
 ];
 
 const weaponItems = [
@@ -406,36 +409,50 @@ const weaponItems = [
   { name: "Топор", dmg: 30, chance: 10 },
   { name: "Мачете", dmg: 30, chance: 10 },
   { name: "Бензопила", dmg: 40, chance: 6 },
+  { name: "Катана", dmg: 45, chance: 5 },
   { name: "Glock-17", dmg: 70, chance: 5 },
   { name: "Tec-9", dmg: 75, chance: 4 },
   { name: "MP-7", dmg: 100, chance: 3 },
   { name: "Uzi", dmg: 100, chance: 3 },
+  { name: "UMP", dmg: 120, chance: 2.5 },
   { name: "Охотничье ружьё", dmg: 170, chance: 2 },
   { name: "Дробовик", dmg: 180, chance: 1.5 },
   { name: "Двустволка", dmg: 190, chance: 1.2 },
   { name: "Famas", dmg: 210, chance: 1 },
+  { name: "M4", dmg: 240, chance: 0.7 },
   { name: "Ak-47", dmg: 250, chance: 0.8 },
   { name: "SCAR-L", dmg: 260, chance: 0.7 },
   { name: "ВСК-94", dmg: 300, chance: 0.5 },
-  { name: "AWP", dmg: 350, chance: 0.3 }
+  { name: "VSS", dmg: 370, chance: 0.25 },
+  { name: "AWP", dmg: 350, chance: 0.3 },
+  { name: "Гранатомет", dmg: 380, chance: 0.2 },
+  { name: "Подопытный", dmg: 450, chance: 0.1 }
 ];
 
 const helmetItems = [
   { name: "Пакет", block: 2, chance: 20 },
+  { name: "Шлем шапка", block: 3, chance: 19 },
+  { name: "Шлем бинты", block: 3, chance: 19 },
   { name: "Кепка", block: 3, chance: 18 },
   { name: "Балаклава", block: 3, chance: 18 },
   { name: "Кожаный шлем", block: 5, chance: 15 },
+  { name: "Шлем Респиратор", block: 5, chance: 14 },
   { name: "Велосипедный шлем", block: 5, chance: 15 },
   { name: "Строительный шлем", block: 10, chance: 10 },
   { name: "Противогаз", block: 20, chance: 6 },
+  { name: "Шлем пила", block: 20, chance: 4 },
   { name: "Боевой шлем", block: 20, chance: 5 },
   { name: "Военный шлем", block: 30, chance: 3 },
+  { name: "Шлем ночного видения", block: 25, chance: 2 },
+  { name: "Шлем стальной", block: 35, chance: 1.5 },
   { name: "Шлем CRIMECORE", block: 40, chance: 2 }
 ];
 
 const mutationItems = [
+  { name: "Зубной", crit: 0.10, chance: 25 },
   { name: "Кровоточащий", crit: 0.15, chance: 20 },
   { name: "Порезанный", crit: 0.15, chance: 20 },
+  { name: "Молчаливый", crit: 0.20, chance: 18 },
   { name: "Аниме", crit: 0.20, chance: 15 },
   { name: "Момо", crit: 0.20, chance: 15 },
   { name: "Безликий", crit: 0.25, chance: 12 },
@@ -460,22 +477,33 @@ const FREE_GIFT_CHANNEL = "@SL4VE666"; // канал для бесплатног
 // список легендарных предметов (имена — из твоего файла). 
 // Мы потом найдём объекты в существующих массивах по имени (поиск нечувствителен к регистру).
 const LEGENDARY_NAMES = [
+  "Броня хай-тек",
+  "Броня скелет",
   "Бронежилет военных",
   "Бронежилет CRIMECORE",
   "Бронежилет мутации",
   "Бронежилет хим. вещества",
   "Бронежилет протез",
+  "Шлем стальной",
+  "Шлем ночного видения",
+  "Шлем пила",
   "Зубастик",
   "Клешни",
   "Бог",
+  "Катана",
+  "UMP",
   "Uzi",
   "Охотничье ружьё",
   "Дробовик",
   "Двустволка",
   "Famas",
+  "M4",
   "Ak-47",
   "SCAR-L",
   "ВСК-94",
+  "VSS",
+  "Гранатомет",
+  "Подопытный",
   "AWP",
   "Военный шлем",
   "Шлем CRIMECORE"
