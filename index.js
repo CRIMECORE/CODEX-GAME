@@ -319,7 +319,9 @@ function ensurePlayer(user) {
       pvpWins: 0,
       pvpLosses: 0,
       lastGiftTime: 0,
-      huntCooldownWarned: false
+      huntCooldownWarned: false,
+      currentDanger: null,
+      currentDangerMsgId: null
     };
     players[key] = p;
     saveData();
@@ -363,6 +365,8 @@ function cleanDatabase() {
     p.pvpLosses ??= 0;
     p.lastGiftTime ??= 0;
     p.huntCooldownWarned ??= false;
+    p.currentDanger ??= null;
+    p.currentDangerMsgId ??= null;
   }
   saveData();
 }
@@ -554,6 +558,157 @@ const storyEvents = [
   }
 ];
 
+const DANGER_EVENT_IMAGE_URL = "https://i.postimg.cc/nLBcv1NT/image.jpg";
+const DANGER_EVENT_CHANCE = 0.1;
+const DANGER_EVENT_ITEM_CHANCE = 0.12;
+
+const dangerScenarios = [
+  {
+    id: "metro",
+    title: "Метро",
+    intro: "Ты приходишь в себя в тёмных коридорах метро. В голове шумит, мысли путаются.\nС каждой секундой, проведённой здесь, тебя начинает поглощать безумие.\nТебе нужно выбраться наружу, пока разум окончательно не помутнел…",
+    success: "Ты видишь впереди свет. Сердце замирает, шаги ускоряются.\nС каждым мгновением воздух становится свежее, темнота остаётся позади.\nТы выбираешься наружу. Свежий ветер обжигает лицо — ты выжил.",
+    failure: "Тьма вокруг сгущается, дыхание становится рваным.\nСилы покидают тебя, и последние мысли тонут в хаосе.\nМетро забирает тебя навсегда.",
+    branches: [
+      {
+        id: "escalator",
+        name: "Эскалатор",
+        steps: [
+          [
+            "К турникетам (ржавые створки, проход узкий)",
+            "К служебным дверям (металлические, облупившаяся краска)",
+            "Через дыру в стене (тесный пролом, пахнет сыростью)"
+          ],
+          [
+            "В кассовый зал (стойки, мусор под ногами)",
+            "В коридор охраны (с потолка свисают кабели)",
+            "В техническую нишу (трубы, вентили, запах сырости)"
+          ],
+          [
+            "К вестибюлю (широкий холл, эхо шагов)",
+            "На лестницу наружу (крутые ступени, сквозняк)",
+            "На чердачную площадку (старые перекрытия, ветер усиливается)"
+          ]
+        ]
+      },
+      {
+        id: "rails",
+        name: "По рельсам",
+        steps: [
+          [
+            "К платформе (края осыпаются, густая темнота)",
+            "В обходную галерею (узкий мостик вдоль стены)",
+            "К дренажному люку (шум воды, влажные стены)"
+          ],
+          [
+            "В технический тоннель (аварийные огни, кабель-каналы)",
+            "В служебную комнату (шкафчики, старые бумаги)",
+            "Через перекидной мост (шатающийся настил над ямой)"
+          ],
+          [
+            "К вентшахте (поток холодного воздуха)",
+            "К сигнальному посту (пульт с мигающими лампами)",
+            "К зоне размыва (грязь, обрушенные шпалы)"
+          ]
+        ]
+      },
+      {
+        id: "passage",
+        name: "Переход",
+        steps: [
+          [
+            "В подземный коридор (длинный, стены в налёте)",
+            "К служебной двери (перекошенная, петли скрипят)",
+            "В вентиляционный проём (тесный, пахнет пылью)"
+          ],
+          [
+            "К узловой развязке (несколько ответвлений, схемы на стенах)",
+            "На склад хлама (ящики, разбросанный инвентарь)",
+            "В обходной лаз (низкий, приходится ползти)"
+          ],
+          [
+            "На лестницу к выходу (ступени вверх, слышен шум снаружи)",
+            "К двери на улицу (тяжёлая створка, сквозняк)",
+            "В аварийный лаз (жёлтая маркировка, резкий ветер)"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    id: "mall",
+    title: "Торговый центр",
+    intro: "Ты приходишь в себя на холодном кафеле. Над головой мигает лампа, но света от неё почти нет.\nВокруг — разрушенный торговый центр: витрины разбиты, тишину нарушает лишь скрип металлоконструкций.\nС каждой секундой здесь становится всё холоднее и опаснее.\nТебе нужно найти выход, пока ты не сошёл с ума.",
+    success: "Ты пробираешься через очередной пролом и видишь впереди яркий свет.\nХолодный воздух и запах улицы наполняют лёгкие.\nТы выбрался из заброшенного центра. Ты спасён.",
+    failure: "Пыль и бетонная крошка забивают дыхание.\nСилы покидают тебя, и последние мысли тонут в темноте.",
+    branches: [
+      {
+        id: "escalator_mall",
+        name: "Эскалатор",
+        steps: [
+          [
+            "К сломанным турникетам (каркас искорёженный, проход узкий)",
+            "К служебным дверям (выбитые, краска облупилась)",
+            "Через пролом в стене (дыра ведёт в соседний зал, пахнет гарью)"
+          ],
+          [
+            "В кассовую зону супермаркета (пустые стойки, разбросанные чеки)",
+            "В коридор охраны (разбитые камеры, провода торчат из стен)",
+            "В техническое помещение (трубы, запах сырости, ржавчина)"
+          ],
+          [
+            "К главному вестибюлю (разбитые витрины, эхо шагов)",
+            "На лестницу к верхнему этажу (ступени поломаны, но ведут вверх)",
+            "На технический балкон (пыльные конструкции, сквозняк усиливается)"
+          ]
+        ]
+      },
+      {
+        id: "shops",
+        name: "По рядам магазинов",
+        steps: [
+          [
+            "К обувному магазину (выбиты витрины, кучи хлама)",
+            "В проход к фуд-корту (разваленные столы и стулья)",
+            "В сторону кинотеатра (афиши облезли, темнота густая)"
+          ],
+          [
+            "В склад продуктового (ящики, банки, запах гнили)",
+            "В игровую зону (разбитые автоматы, игрушки валяются на полу)",
+            "Через аварийный коридор (узкий, мигает аварийная лампа)"
+          ],
+          [
+            "К служебной лестнице (бетон в трещинах, наверху светлее)",
+            "В зал с фонтаном (вода застоялась, плитка скользкая)",
+            "В боковой коридор (длинный, обрывки рекламы на стенах)"
+          ]
+        ]
+      },
+      {
+        id: "parking",
+        name: "Парковка",
+        steps: [
+          [
+            "В подземный гараж (разрушенные машины, запах бензина)",
+            "К грузовым воротам (огромные створки, заржавели)",
+            "В вентиляционный проём (узкий ход, пыль и паутина)"
+          ],
+          [
+            "В технический коридор (бетонные стены, капает вода)",
+            "В кладовую (старые ящики, металлический запах)",
+            "В обходной туннель (низкий, приходится пригибаться)"
+          ],
+          [
+            "На пандус к улице (наклон вверх, чувствуется ветер)",
+            "К запасному выходу (дверь перекошена, но из щели свет)",
+            "В аварийный лаз (обозначен жёлтой краской, слышен шум снаружи)"
+          ]
+        ]
+      }
+    ]
+  }
+];
+
 function applyBadEffect(player, badEffect) {
   if (!player || !badEffect) return;
   if (badEffect.type === "lose_points") {
@@ -563,6 +718,186 @@ function applyBadEffect(player, badEffect) {
       player.inventory[badEffect.slot] = null;
     }
   }
+}
+
+function getDangerScenarioById(id) {
+  return dangerScenarios.find((scenario) => scenario.id === id) || dangerScenarios[0];
+}
+
+function getDangerBranch(scenario, branchId) {
+  if (!scenario) return null;
+  return scenario.branches.find((branch) => branch.id === branchId) || scenario.branches[0];
+}
+
+function getDangerOptions(branch, step) {
+  if (!branch || !Array.isArray(branch.steps) || branch.steps.length === 0) return [];
+  if (step <= branch.steps.length) {
+    return branch.steps[step - 1];
+  }
+  return branch.steps[branch.steps.length - 1];
+}
+
+function getDangerExitChance(step) {
+  if (step <= 1) return 0.10;
+  if (step === 2) return 0.30;
+  if (step === 3) return 0.60;
+  const extra = 0.60 + 0.10 * (step - 3);
+  return Math.min(extra, 0.70);
+}
+
+function getDangerStepDamage(player) {
+  if (!player) return 0;
+  const baseMaxHp = typeof player.maxHp === "number" && player.maxHp > 0 ? player.maxHp : 100;
+  const damage = Math.max(1, Math.ceil(baseMaxHp * 0.34));
+  if (typeof player.hp !== "number") player.hp = baseMaxHp;
+  player.hp = Math.max(0, player.hp - damage);
+  return damage;
+}
+
+function buildDangerKeyboard(options) {
+  if (!options || options.length === 0) {
+    return { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] };
+  }
+  return {
+    inline_keyboard: options.map((opt, idx) => [{ text: opt, callback_data: `danger_move:${idx}` }])
+  };
+}
+
+async function startDangerEvent(player, chatId) {
+  if (!player) return;
+  applyArmorHelmetBonuses(player);
+  const scenario = dangerScenarios[Math.floor(Math.random() * dangerScenarios.length)];
+  const branch = scenario.branches[Math.floor(Math.random() * scenario.branches.length)];
+  player.monster = null;
+  player.currentEvent = null;
+  player.currentDanger = { scenarioId: scenario.id, branchId: branch.id, step: 1 };
+  const options = getDangerOptions(branch, 1);
+  const caption = [
+    `⚠️ *Опасное событие*: ${escMd(scenario.title)}`,
+    "",
+    `${escMd(scenario.intro)}`,
+    "",
+    `❤️ HP: ${player.hp}/${player.maxHp}`,
+    "🧭 Шаг 1 — выбери направление:"
+  ].join("\n");
+  const sent = await bot.sendPhoto(chatId, DANGER_EVENT_IMAGE_URL, {
+    caption,
+    parse_mode: "Markdown",
+    reply_markup: buildDangerKeyboard(options)
+  });
+  player.currentDangerMsgId = sent.message_id;
+  saveData();
+}
+
+async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
+  if (!player || !player.currentDanger) return;
+  const state = player.currentDanger;
+  const scenario = getDangerScenarioById(state.scenarioId);
+  const branch = getDangerBranch(scenario, state.branchId);
+  const currentOptions = getDangerOptions(branch, state.step);
+  const targetMessageId = player.currentDangerMsgId || messageId;
+  if (!scenario || !branch || currentOptions.length === 0) {
+    player.currentDanger = null;
+    player.currentDangerMsgId = null;
+    saveData();
+    await bot.editMessageCaption("⚠️ Сценарий прерван.", {
+      chat_id: chatId,
+      message_id: targetMessageId,
+      reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] }
+    }).catch(()=>{});
+    return;
+  }
+
+  const idx = Number(choiceIndex);
+  const optionText = currentOptions[idx] || currentOptions[0];
+  const damage = getDangerStepDamage(player);
+  const exitChance = getDangerExitChance(state.step);
+  const baseCaption = `⚠️ *Опасное событие*: ${escMd(scenario.title)} — ${escMd(branch.name)}`;
+
+  if (player.hp <= 0) {
+    player.infection = Math.max(0, (player.infection || 0) - 400);
+    applyArmorHelmetBonuses(player);
+    player.hp = player.maxHp;
+    player.currentDanger = null;
+    player.currentDangerMsgId = null;
+    saveData();
+    const failureText = [
+      baseCaption,
+      "",
+      `${escMd(scenario.failure)}`,
+      "",
+      "☣️ Ты потерял 400 заражения."
+    ].join("\n");
+    await bot.editMessageCaption(failureText, {
+      chat_id: chatId,
+      message_id: targetMessageId,
+      parse_mode: "Markdown",
+      reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] }
+    }).catch(()=>{});
+    return;
+  }
+
+  if (Math.random() < exitChance) {
+    player.infection = (player.infection || 0) + 400;
+    player.currentDanger = null;
+    player.currentDangerMsgId = null;
+    let successText = [
+      baseCaption,
+      "",
+      `${escMd(scenario.success)}`,
+      "",
+      "☣️ Ты получил 400 заражения."
+    ].join("\n");
+    let replyMarkup = { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] };
+    if (Math.random() < DANGER_EVENT_ITEM_CHANCE) {
+      const dropPool = [
+        ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
+        ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
+        ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
+        ...extraItems.map(it => ({ ...it, kind: "extra" })),
+        ...armorItems.map(it => ({ ...it, kind: "armor" }))
+      ];
+      const picked = pickByChance(dropPool);
+      if (picked) {
+        player.pendingDrop = { ...picked };
+        successText += `\n\n🎁 Выпало: ${escMd(picked.name)}\nЧто делать?`;
+        replyMarkup = {
+          inline_keyboard: [
+            [{ text: "✅ Взять", callback_data: "take_drop" }],
+            [{ text: "🗑️ Выбросить", callback_data: "discard_drop" }]
+          ]
+        };
+      }
+    }
+    saveData();
+    await bot.editMessageCaption(successText, {
+      chat_id: chatId,
+      message_id: targetMessageId,
+      parse_mode: "Markdown",
+      reply_markup: replyMarkup
+    }).catch(()=>{});
+    return;
+  }
+
+  state.step += 1;
+  const nextOptions = getDangerOptions(branch, state.step);
+  const nextChance = Math.round(getDangerExitChance(state.step) * 100);
+  const continueText = [
+    baseCaption,
+    "",
+    `Ты выбрал: ${escMd(optionText)}.`,
+    `💢 Потеряно HP: ${damage} (осталось ${player.hp}/${player.maxHp}).`,
+    `🚪 Выход не найден. Шанс найти выход теперь: ${nextChance}%.`,
+    "",
+    `🧭 Шаг ${state.step} — выбери направление:`
+  ].join("\n");
+  saveData();
+  await bot.editMessageCaption(continueText, {
+    chat_id: chatId,
+    message_id: targetMessageId,
+    parse_mode: "Markdown",
+    reply_markup: buildDangerKeyboard(nextOptions)
+  }).catch(()=>{});
 }
 
 // ---- Utilities ----
@@ -1634,12 +1969,15 @@ if (dataCb === "hunt") {
   }
 
     player.lastHunt = now;
-    player.monster = spawnMonster();
     player.firstAttack = false;
     player.monsterStun = 0;
     player.pendingDrop = null;
+    player.currentEvent = null;
+    player.currentDanger = null;
+    player.currentDangerMsgId = null;
+    player.monster = null;
+    delete player.currentBattleMsgId;
     applyArmorHelmetBonuses(player);
-    saveData();
 
     const monsterImages = {
         weak:  "https://i.postimg.cc/XqWfytS2/IMG-6677.jpg",
@@ -1648,18 +1986,23 @@ if (dataCb === "hunt") {
         quest: "https://i.postimg.cc/J4Gn5PrK/IMG-6680.jpg"
     };
 
-  if (Math.random() < 0.075) {
+  const roll = Math.random();
+  if (roll < DANGER_EVENT_CHANCE) {
+    await startDangerEvent(player, chatId);
+    return;
+  }
+
+  if (roll < DANGER_EVENT_CHANCE + 0.075) {
     const ev = storyEvents[Math.floor(Math.random() * storyEvents.length)];
     player.currentEvent = ev;
-    saveData();
     const sent = await bot.sendPhoto(chatId, monsterImages.quest, {
       caption: `📜 *${ev.title}*\n\n${ev.text}`,
       parse_mode: "Markdown",
-      reply_markup: { 
+      reply_markup: {
         inline_keyboard: [
           [{ text: "🔥 Действовать", callback_data: "event_action" }],
           [{ text: "⬅️ Назад", callback_data: "play" }]
-        ] 
+        ]
       }
     });
     player.currentBattleMsgId = sent.message_id;
@@ -1667,10 +2010,12 @@ if (dataCb === "hunt") {
     return;
   }
 
+    player.monster = spawnMonster();
+    saveData();
     const img = monsterImages[player.monster.type] || monsterImages.weak;
     const sent = await bot.sendPhoto(chatId, img, {
         caption: `🩸 Ты встретил Подопытного №${player.monster.id}\nHP: ${player.monster.hp}/${player.monster.maxHp}\nУрон: ${player.monster.dmg}`,
-        reply_markup: { 
+        reply_markup: {
             inline_keyboard: [
                 [{ text: "⚔️ Атаковать", callback_data: "attack" }],
                 [{ text: "🏃 Убежать", callback_data: "run_before_start" }]
@@ -1893,6 +2238,16 @@ if (dataCb === "attack") {
     return;
   }
 }
+
+  if (dataCb.startsWith("danger_move:")) {
+    if (!player.currentDanger) {
+      await bot.answerCallbackQuery(q.id, { text: "Опасное событие не активно.", show_alert: true }).catch(()=>{});
+      return;
+    }
+    const idx = dataCb.split(":")[1] || "0";
+    await continueDangerEvent(player, chatId, messageId, idx);
+    return;
+  }
 
   if (dataCb === "take_drop") {
     if (!player.pendingDrop) { await bot.answerCallbackQuery(q.id, { text: "Нечего брать.", show_alert: true }).catch(()=>{}); return; }
