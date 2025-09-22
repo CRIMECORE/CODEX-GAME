@@ -12,6 +12,7 @@
     "grammy": "^1.27.0",
     "node-fetch": "^2.7.0",
     "node-telegram-bot-api": "^0.66.0",
+    "mysql2": "^3.10.0",
     "sharp": "^0.34.3",
     "pg": "^8.11.5"
   },
