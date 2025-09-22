@@ -334,6 +334,26 @@ function ensurePlayer(user) {
   return p;
 }
 
+function findPlayerByIdentifier(identifier) {
+  if (!identifier) return null;
+  const raw = String(identifier).trim();
+  if (!raw) return null;
+
+  if (/^\d+$/.test(raw)) {
+    return players[raw] || null;
+  }
+
+  const normalized = raw.startsWith('@') ? raw.slice(1).toLowerCase() : raw.toLowerCase();
+  return (
+    Object.values(players).find(player => {
+      if (!player) return false;
+      if (player.username && player.username.toLowerCase() === normalized) return true;
+      if (player.name && String(player.name).toLowerCase() === normalized) return true;
+      return false;
+    }) || null
+  );
+}
+
 function cleanDatabase() {
   for (const [key, p] of Object.entries(players)) {
     if (!p || typeof p !== 'object') {
