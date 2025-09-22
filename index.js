@@ -27,7 +27,25 @@ try {
     throw error;
   }
 }
-import fetch from 'node-fetch';
+let fetchImpl = globalThis.fetch;
+if (!fetchImpl) {
+  try {
+    const fetchModule = await import('node-fetch');
+    fetchImpl = fetchModule?.default || fetchModule;
+  } catch (error) {
+    if (error?.code === 'ERR_MODULE_NOT_FOUND') {
+      console.warn(
+        'Neither global fetch nor node-fetch are available; remote requests will fail.'
+      );
+    } else {
+      throw error;
+    }
+  }
+}
+const fetch = fetchImpl ? (...args) => fetchImpl(...args) : async () => {
+  throw new Error('Fetch API is unavailable.');
+};
+
 import http from 'http';
 
 let TelegramBotCtorCache;
