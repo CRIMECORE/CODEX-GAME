@@ -55,3 +55,11 @@ awp: https://i.postimg.cc/hPff6mP2/awp.png
 Граната: https://i.postimg.cc/CLqfdDTz/3333.png
 Адреналин: https://i.postimg.cc/nhf9mzpT/image.png
 Газовый балон: https://i.postimg.cc/vmQ1PN1V/image.png
+Знак внимание: https://i.postimg.cc/FsPgB1v5/image.png
+Знак череп: https://i.postimg.cc/nhbcZGpv/image.png
+Знак 18+: https://i.postimg.cc/JzLDKLDV/18.png
+Знак CRIMECORE: https://i.postimg.cc/Gtv3s4jB/CRIMECORE.png
+Знак BIOHAZARD: https://i.postimg.cc/4x2GyvTL/BIOHAZARD.png
+Знак радиации: https://i.postimg.cc/4dzj6VrT/image.png
+Знак пустой: https://i.postimg.cc/C1H6BYqh/image.png
+Знак final CRIMECORE: https://i.postimg.cc/LsjxwRvt/final-CRIMECORE.png
