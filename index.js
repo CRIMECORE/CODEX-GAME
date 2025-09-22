@@ -12,7 +12,7 @@ import http from 'http';
 
 import pool from './lib/db.js';
 
-// --- Очистка таблицы bot_state (MySQL) ---
+// --- Очистка таблицы bot_state ---
 export async function clearBotStateTable() {
   await pool.execute('DELETE FROM bot_state');
   console.log('Таблица bot_state очищена.');
@@ -22,7 +22,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TOKEN = process.env.TELEGRAM_TOKEN || process.env.TOKEN || process.env.BOT_TOKEN;
 
+let bot; // глобальная переменная для TelegramBot
 
+let data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
+let players = data.players;
+let clans = data.clans;
+let clanBattles = data.clanBattles;
+let clanInvites = data.clanInvites;
+let saving = false;
+let saveAgain = false;
 
 function normalizeName(str) {
   return String(str || '')
@@ -83,35 +91,39 @@ async function generateInventoryImage(player) {
     return null;
   }
 }
-
-
-let bot; // глобальная переменная для TelegramBot
-
-// --- saveData определена выше process.on ---
 async function saveData() {
-  if (global.saving) {
-    global.saveAgain = true;
+  if (saving) {
+    saveAgain = true;
     return;
   }
-  global.saving = true;
+
+  saving = true;
   try {
-    global.data.players = global.players;
-    global.data.clans = global.clans;
-    global.data.clanBattles = global.clanBattles;
-    global.data.clanInvites = global.clanInvites;
-    await pool.execute(
-      `INSERT INTO bot_state (id, state, updated_at)
-       VALUES (1, ?, NOW())
-       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
-      [JSON.stringify(global.data)]
-    );
+    data.players = players;
+    data.clans = clans;
+    data.clanBattles = clanBattles;
+    data.clanInvites = clanInvites;
+
+    const payload = JSON.stringify(data);
+    const query = pool.dialect === 'postgres'
+      ? `INSERT INTO bot_state (id, state, updated_at)
+         VALUES (1, ?, NOW())
+         ON CONFLICT (id) DO UPDATE
+         SET state = EXCLUDED.state,
+             updated_at = EXCLUDED.updated_at`
+      : `INSERT INTO bot_state (id, state, updated_at)
+         VALUES (1, ?, NOW())
+         ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`;
+
+    await pool.execute(query, [payload]);
   } catch (e) {
-    console.error("Ошибка записи в MySQL:", e);
+    console.error('Ошибка записи состояния бота:', e);
   }
-  global.saving = false;
-  if (global.saveAgain) {
-    global.saveAgain = false;
-    saveData();
+
+  saving = false;
+  if (saveAgain) {
+    saveAgain = false;
+    await saveData();
   }
 }
 
@@ -164,7 +176,8 @@ function mainMenuKeyboard() {
       [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
       [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
       [{ text: "⚔️ PvP", callback_data: "pvp_request" }],
-      [{ text: "🏰 Кланы", callback_data: "clans_menu" }]
+      [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
+      [{ text: "📢 Канал", url: "https://t.me/crimecorebotgame" }]
     ]
   };
 }
@@ -173,7 +186,6 @@ function lootMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
-      [{ text: "➕ Бесплатный подарок", callback_data: "invite_friend" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
@@ -186,21 +198,6 @@ async function startBot() {
             try { bot.stopPolling(); } catch (e) { console.error('Ошибка при stopPolling:', e.message); }
         }
     }
-
-
-
-// data file path (works with "type": "module")
-const DATA_FILE = path.join(__dirname, "data.json");
-
-let data = { players: {}, clans: {}, clanBattles: [] }; // canonical structure
-let players = data.players;
-let clans = data.clans;
-let clanInvites = data.clanInvites || {};
-let clanBattles = data.clanBattles;
-
-// Prevent concurrent writes under heavy load
-let saving = false;
-let saveAgain = false;
 
   // await initPostgres();
   await loadData();
@@ -594,30 +591,6 @@ async function editOrSend(chatId, messageId, text, options = {}) {
   }
 }
 
-function mainMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🩸 Выйти на охоту", callback_data: "hunt" }],
-      [{ text: "🪦 Лутать тело 📦", callback_data: "loot_menu" }],
-      [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
-      [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
-      [{ text: "⚔️ PvP", callback_data: "pvp_request" }],
-      [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
-      [{ text: "📢 Канал", url: "https://t.me/crimecorebotgame" }]
-    ]
-  };
-}
-
-function lootMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
-      // [{ text: "➕ Пригласить друга", callback_data: "invite_friend" }],
-                  [{ text: "⬅️ Назад", callback_data: "play" }]
-    ]
-  };
-}
-
 function findItemByName(name) {
   if (!name) return null;
   const allPools = [
@@ -644,66 +617,44 @@ async function giveItemToPlayer(chatId, player, item, sourceText = "") {
 
 // ---- Data load/save and migration ----
 
-async function saveData() {
-  if (saving) {
-    saveAgain = true;
-    return;
-  }
-  saving = true;
-  try {
-    data.players = players;
-    data.clans = clans;
-    data.clanBattles = clanBattles;
-    data.clanInvites = clanInvites;
-    await pool.execute(
-      `INSERT INTO bot_state (id, state, updated_at)
-       VALUES (1, ?, NOW())
-       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
-      [JSON.stringify(data)]
-    );
-  } catch (e) {
-    console.error("Ошибка записи в PostgreSQL:", e);
-  }
-  // ...
-  saving = false;
-  if (saveAgain) {
-    saveAgain = false;
-    saveData();
-  }
-}
-
 async function loadData() {
   try {
-  const [rows] = await pool.execute("SELECT state FROM bot_state WHERE id = 1");
+    const [rows] = await pool.execute('SELECT state FROM bot_state WHERE id = 1');
     if (rows.length === 0) {
-      // Если нет состояния — создаём пустое
       data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
       players = data.players;
       clans = data.clans;
       clanBattles = data.clanBattles;
       clanInvites = data.clanInvites;
-      await pool.execute(
-        "INSERT INTO bot_state (id, state, updated_at) VALUES (1, ?, NOW()) ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()",
-        [JSON.stringify(data)]
-      );
-      console.log("MySQL: создано новое состояние по умолчанию.");
+      const insertQuery = pool.dialect === 'postgres'
+        ? `INSERT INTO bot_state (id, state, updated_at)
+           VALUES (1, ?, NOW())
+           ON CONFLICT (id) DO UPDATE
+           SET state = EXCLUDED.state,
+               updated_at = EXCLUDED.updated_at`
+        : `INSERT INTO bot_state (id, state, updated_at)
+           VALUES (1, ?, NOW())
+           ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`;
+      await pool.execute(insertQuery, [JSON.stringify(data)]);
+      console.log('Создано новое состояние по умолчанию в базе данных.');
       return;
     }
-  const parsed = rows[0] && (typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state) || {};
+
+    const rawState = rows[0]?.state;
+    const parsed = typeof rawState === 'string' ? JSON.parse(rawState) : (rawState || {});
     players = parsed.players || {};
     clans = parsed.clans || {};
     clanBattles = parsed.clanBattles || [];
     clanInvites = parsed.clanInvites || {};
 
-    // Сохраняем обратно ссылки в data
     data.players = players;
     data.clans = clans;
     data.clanBattles = clanBattles;
     data.clanInvites = clanInvites;
 
-  console.log("MySQL: состояние загружено.");
+    console.log('Состояние бота загружено из базы данных.');
   } catch (e) {
-    console.error("Ошибка чтения из MySQL:", e);
+    console.error('Ошибка чтения состояния бота:', e);
   }
 }
 
