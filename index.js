@@ -44,7 +44,14 @@ if (!sharp && !JimpLib) {
     const isAvailable = pngComposerModule?.isPngComposerAvailable?.();
     composePngBuffers = pngComposerModule?.composePngBuffers;
     if (composePngBuffers && isAvailable) {
-      console.info('Using pngjs fallback for inventory image composition.');
+      const implementation = pngComposerModule?.getPngComposerImplementation?.();
+      if (implementation === 'pngjs') {
+        console.info('Using pngjs fallback for inventory image composition.');
+      } else if (implementation === 'builtin-simple') {
+        console.info('Using built-in PNG compositor for inventory image composition.');
+      } else {
+        console.info('Using PNG fallback for inventory image composition.');
+      }
     } else {
       const reason = pngComposerModule?.getPngComposerLoadError?.();
       if (reason) {
