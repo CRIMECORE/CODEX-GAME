@@ -2571,11 +2571,12 @@ if (dataCb === "attack") {
     }
 
     if (player.monster.hp <= 0) {
+        const monsterType = player.monster?.type || "weak";
         let infGain;
-        if (player.monster.type === "boss") {
+        if (monsterType === "boss") {
             infGain = 200;
         } else {
-            infGain = (player.monster.type === "medium") ? 35 : (player.monster.type === "fat" ? 60 : 20);
+            infGain = (monsterType === "medium") ? 35 : (monsterType === "fat" ? 60 : 20);
         }
         if (player && (player.id === 7897895019)) {
           infGain = Math.floor(Math.random() * (500 - 250 + 1)) + 250;
@@ -2583,13 +2584,13 @@ if (dataCb === "attack") {
         if (player.radiationBoost) { infGain *= 2; player.radiationBoost = false; }
         player.infection += infGain;
         player.pendingDrop = null;
-        if (player.monster.type === "boss") {
+        if (monsterType === "boss") {
             const finalSign = getFinalSignTemplate();
             if (finalSign) {
                 player.pendingDrop = { ...finalSign };
             }
         } else {
-            const dropChance = (player.monster.type === "weak") ? 0.20 : (player.monster.type === "medium") ? 0.35 : 0.60;
+            const dropChance = (monsterType === "weak") ? 0.20 : (monsterType === "medium") ? 0.35 : 0.60;
             if (Math.random() < dropChance) {
                 const dropPool = [
                   ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
@@ -2615,7 +2616,7 @@ if (dataCb === "attack") {
         }
 
         saveData();
-        const victoryPrefix = player.monster.type === "boss" ? "💀 Ты уничтожил босса CRIMECORE" : "💀 Ты убил Подопытного";
+        const victoryPrefix = monsterType === "boss" ? "💀 Ты уничтожил босса CRIMECORE" : "💀 Ты убил Подопытного";
         let winText = `${victoryPrefix} и получил +${infGain} заражения☣️!\nТекущий уровень заражения: ${player.infection}`;
         if (survivalMessage) {
             winText += `\n${survivalMessage}`;
