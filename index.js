@@ -1520,7 +1520,7 @@ if (dataCb === "legend_box") {
 
 if (dataCb === "hunt") {
   const now = Date.now();
-  let huntCooldown = 40000;
+  let huntCooldown = 15000;
   if (player && (player.id === 7897895019 || player.id === 7026777373)) {
     huntCooldown = 1000;
   }
