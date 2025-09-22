@@ -61,7 +61,24 @@ async function loadTelegramBotCtor() {
         "node-telegram-bot-api not found; falling back to grammy compatibility layer."
       );
       const compatModule = await import('./lib/telegramBotCompat.js');
-      TelegramBotCtorCache = compatModule?.default || compatModule.TelegramBotCompat;
+      if (compatModule?.isGrammyAvailable?.()) {
+        TelegramBotCtorCache = compatModule?.default || compatModule.TelegramBotCompat;
+      } else {
+        const reason = compatModule?.getGrammyLoadError?.();
+        if (reason) {
+          console.warn(
+            `grammy is unavailable (${reason.message || reason}); using no-op Telegram bot.`
+          );
+        } else {
+          console.warn('grammy is unavailable; using no-op Telegram bot.');
+        }
+        const NoopBotCtor = compatModule?.TelegramBotNoop;
+        if (NoopBotCtor) {
+          TelegramBotCtorCache = NoopBotCtor;
+        } else {
+          throw new Error('No Telegram bot implementation available.');
+        }
+      }
     } else {
       throw error;
     }
