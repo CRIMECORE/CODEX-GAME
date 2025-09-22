@@ -56,7 +56,7 @@ async function generateInventoryImage(player) {
     if (!resBase.ok) throw new Error(`Ошибка загрузки фона`);
     const baseBuf = await resBase.arrayBuffer();
 
-    const order = ["mutation", "armor", "weapon", "helmet", "extra"];
+    const order = ["mutation", "armor", "weapon", "helmet", "extra", "sign"];
     for (const key of order) {
       const item = player && player.inventory ? player.inventory[key] : null;
       if (!item || !item.name) continue;
@@ -238,7 +238,7 @@ function ensurePlayer(user) {
       maxHp: 100,
       infection: 0,
       clanId: null,
-      inventory: { armor: null, helmet: null, weapon: null, mutation: null, extra: null },
+      inventory: { armor: null, helmet: null, weapon: null, mutation: null, extra: null, sign: null },
       monster: null,
       monsterStun: 0,
       damageBoostTurns: 0,
@@ -463,6 +463,9 @@ function cleanDatabase() {
     p.inventory.weapon ??= null;
     p.inventory.mutation ??= null;
     p.inventory.extra ??= null;
+    p.inventory.sign ??= null;
+    p.signRadiationUsed ??= false;
+    p.signFinalUsed ??= false;
     p.id ??= Number(key);
     p.username ??= `id${key}`;
     p.name ??= p.username;
@@ -590,6 +593,137 @@ const extraItems = [
   { name: "Адреналин", effect: "halfDamage1", chance: 12, turns: 1 },
   { name: "Газовый балон", effect: "doubleDamage1", chance: 6, turns: 1 },
   ];
+
+const signItems = [
+  { name: "Знак внимание", kind: "sign", vampirism: 0.10, caseEligible: true },
+  { name: "Знак череп", kind: "sign", vampirism: 0.15, caseEligible: true },
+  { name: "Знак 18+", kind: "sign", vampirism: 0.20, caseEligible: true },
+  { name: "Знак CRIMECORE", kind: "sign", vampirism: 0.25, caseEligible: true },
+  { name: "Знак BIOHAZARD", kind: "sign", vampirism: 0.30, caseEligible: true },
+  { name: "Знак радиации", kind: "sign", preventLethal: "radiation", extraTurn: true, caseEligible: true },
+  { name: "Знак пустой", kind: "sign", dodgeChance: 0.20, caseEligible: true },
+  { name: "Знак final CRIMECORE", kind: "sign", preventLethal: "final", fullHeal: true, caseEligible: false }
+];
+
+function getSignTemplateByName(name) {
+  if (!name) return null;
+  const lower = String(name).toLowerCase();
+  return signItems.find((it) => String(it.name).toLowerCase() === lower) || null;
+}
+
+function getSignEffects(sign) {
+  if (!sign) {
+    return {
+      name: null,
+      vampirism: 0,
+      dodgeChance: 0,
+      preventLethal: null,
+      extraTurn: false,
+      fullHeal: false
+    };
+  }
+  const template = getSignTemplateByName(sign.name);
+  const merged = { ...template, ...sign };
+  return {
+    name: merged.name,
+    vampirism: merged.vampirism || 0,
+    dodgeChance: merged.dodgeChance || 0,
+    preventLethal: merged.preventLethal || null,
+    extraTurn: Boolean(merged.extraTurn),
+    fullHeal: Boolean(merged.fullHeal)
+  };
+}
+
+function describeSignEffect(sign) {
+  if (!sign) return "—";
+  const effects = getSignEffects(sign);
+  if (effects.preventLethal === "final" && effects.fullHeal) {
+    return "при смертельном ударе восстанавливает все HP (1 раз)";
+  }
+  if (effects.preventLethal === "radiation") {
+    return "спасает от летального удара и даёт дополнительный ход (1 раз)";
+  }
+  if (effects.dodgeChance > 0) {
+    return `${Math.round(effects.dodgeChance * 100)}% шанс увернуться`;
+  }
+  if (effects.vampirism > 0) {
+    return `+${Math.round(effects.vampirism * 100)}% к вампиризму`;
+  }
+  return "—";
+}
+
+function pickRandomSignCaseItem() {
+  const pool = signItems.filter((item) => item.caseEligible !== false);
+  if (pool.length === 0) return null;
+  const picked = pool[Math.floor(Math.random() * pool.length)];
+  return picked ? { ...picked } : null;
+}
+
+function getFinalSignTemplate() {
+  return getSignTemplateByName("Знак final CRIMECORE");
+}
+
+function resetPlayerSignFlags(player) {
+  if (!player) return;
+  player.signRadiationUsed = false;
+  player.signFinalUsed = false;
+}
+
+function tryUseSignProtectionPvp(defender, defenderState, sign, events, attacker, attackerState) {
+  if (!defenderState || defenderState.myHp > 0 || !sign) return false;
+  if (typeof defenderState.signRadiationUsed !== "boolean") defenderState.signRadiationUsed = false;
+  if (typeof defenderState.signFinalUsed !== "boolean") defenderState.signFinalUsed = false;
+  const effects = getSignEffects(sign);
+  if (!effects.preventLethal) return false;
+
+  if (effects.preventLethal === "radiation" && !defenderState.signRadiationUsed) {
+    defenderState.signRadiationUsed = true;
+    if (defender) defender.signRadiationUsed = true;
+    defenderState.myHp = 1;
+    events.push(`☢️ ${defender.username} спасён знаком ${escMd(sign.name)}!`);
+    if (effects.extraTurn && attackerState) {
+      attackerState.myStun = Math.max(attackerState.myStun || 0, 1);
+      if (attacker) {
+        events.push(`⏳ ${attacker.username} ошеломлён и пропускает следующий ход.`);
+      }
+    }
+    return true;
+  }
+
+  if (effects.preventLethal === "final" && effects.fullHeal && !defenderState.signFinalUsed) {
+    defenderState.signFinalUsed = true;
+    if (defender) defender.signFinalUsed = true;
+    defenderState.myHp = defender.maxHp;
+    events.push(`🛡️ ${defender.username} полностью восстановился благодаря ${escMd(sign.name)}!`);
+    return true;
+  }
+
+  return false;
+}
+
+function tryUseSignProtectionPve(player, sign) {
+  if (!player || player.hp > 0 || !sign) return null;
+  const effects = getSignEffects(sign);
+  if (!effects.preventLethal) return null;
+
+  if (effects.preventLethal === "radiation" && !player.signRadiationUsed) {
+    player.signRadiationUsed = true;
+    player.hp = 1;
+    if (effects.extraTurn) {
+      player.monsterStun = Math.max(player.monsterStun || 0, 1);
+    }
+    return `☢️ ${sign.name} спасает тебя от смерти${effects.extraTurn ? ", и монстр пропускает следующий ход!" : "!"}`;
+  }
+
+  if (effects.preventLethal === "final" && effects.fullHeal && !player.signFinalUsed) {
+    player.signFinalUsed = true;
+    applyArmorHelmetBonuses(player);
+    player.hp = player.maxHp;
+    return `🛡️ ${sign.name} полностью восстанавливает твои HP!`;
+  }
+
+  return null;
+}
 
 // ------------------ Loot / Payments config ------------------
 const PROVIDER_TOKEN = "444717:AAP7lzPEP4Kw558oCJzmV3yb6S5wqMBfGbi"; // <- твой CryptoPay token (или "" если хочешь)
@@ -861,6 +995,9 @@ function applyBadEffect(player, badEffect) {
   } else if (badEffect.type === "lose_item" && badEffect.slot) {
     if (player.inventory && player.inventory[badEffect.slot]) {
       player.inventory[badEffect.slot] = null;
+      if (badEffect.slot === "sign") {
+        resetPlayerSignFlags(player);
+      }
     }
   }
 }
@@ -1150,6 +1287,7 @@ function lootMenuKeyboard() {
     inline_keyboard: [
       [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
       [{ text: "🧟‍♂️ Притащить тело", callback_data: "invite_friend" }],
+      [{ text: "Знаки 5000☣️", callback_data: "sign_case" }],
       [{ text: "☣️ Заражённое тело (3000)", callback_data: "infection_case" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
@@ -1182,7 +1320,8 @@ function findItemByName(name) {
     ...armorItems.map(i => ({ ...i, kind: "armor" })),
     ...helmetItems.map(i => ({ ...i, kind: "helmet" })),
     ...mutationItems.map(i => ({ ...i, kind: "mutation" })),
-    ...extraItems.map(i => ({ ...i, kind: "extra" }))
+    ...extraItems.map(i => ({ ...i, kind: "extra" })),
+    ...signItems.map(i => ({ ...i, kind: "sign" }))
   ];
   const lower = String(name).toLowerCase();
   return allPools.find(it => String(it.name).toLowerCase() === lower) || null;
@@ -1192,7 +1331,11 @@ async function giveItemToPlayer(chatId, player, item, sourceText = "") {
   if (!player || !item) return;
   player.pendingDrop = { ...item };
   saveData();
-  const text = `${sourceText}\n\n🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.\nЧто делаем?`;
+  let bonusText = "";
+  if (item.kind === "sign") {
+    bonusText = `\n✨ Эффект: ${describeSignEffect(item)}`;
+  }
+  const text = `${sourceText}\n\n🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.${bonusText}\nЧто делаем?`;
   await bot.sendMessage(chatId, text, {
     parse_mode: "Markdown",
     reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }],[{ text: "🗑️ Выбросить", callback_data: "discard_drop" }],[{ text: "⬅️ В меню", callback_data: "play" }]] }
@@ -1239,6 +1382,8 @@ function initPvpState(challenger, opponent) {
   if (!challenger || !opponent) return false;
   applyArmorHelmetBonuses(challenger);
   applyArmorHelmetBonuses(opponent);
+  resetPlayerSignFlags(challenger);
+  resetPlayerSignFlags(opponent);
 
   challenger.pvp = {
     opponentId: opponent.id,
@@ -1252,7 +1397,9 @@ function initPvpState(challenger, opponent) {
     oppDamageReductionTurns: 0,
     myRadiationBoost: false,
     oppRadiationBoost: false,
-    turn: "me"
+    turn: "me",
+    signRadiationUsed: false,
+    signFinalUsed: false
   };
 
   opponent.pvp = {
@@ -1267,7 +1414,9 @@ function initPvpState(challenger, opponent) {
     oppDamageReductionTurns: 0,
     myRadiationBoost: false,
     oppRadiationBoost: false,
-    turn: "opponent"
+    turn: "opponent",
+    signRadiationUsed: false,
+    signFinalUsed: false
   };
 
   saveData();
@@ -1299,6 +1448,10 @@ function applyExtraEffect(extra, sourcePvpState, targetPvpState, actor, target, 
 
 function computeAttackForPvp(attacker, defender, attackerPvpState, defenderPvpState) {
   const events = [];
+  const attackerSign = attacker.inventory && attacker.inventory.sign ? attacker.inventory.sign : null;
+  const defenderSign = defender.inventory && defender.inventory.sign ? defender.inventory.sign : null;
+  const attackerSignEffects = getSignEffects(attackerSign);
+  const defenderSignEffects = getSignEffects(defenderSign);
 
   // extra (30% шанс)
   if (attacker.inventory && attacker.inventory.extra && Math.random() < 0.3) {
@@ -1332,16 +1485,42 @@ function computeAttackForPvp(attacker, defender, attackerPvpState, defenderPvpSt
     events.push(`💪 ${defender.username} уменьшает входящий урон вдвое.`);
   }
 
-  const helmetBlock = defender.inventory && defender.inventory.helmet ? (defender.inventory.helmet.block || 0) : 0;
-  if (helmetBlock > 0) {
-    const blocked = Math.ceil(damage * helmetBlock / 100);
-    damage -= blocked;
-    events.push(`🪖 ${defender.username} шлем блокирует ${blocked} урона (${helmetBlock}%).`);
+  let dodgedBySign = false;
+  if (defenderSignEffects.dodgeChance > 0 && Math.random() < defenderSignEffects.dodgeChance) {
+    dodgedBySign = true;
+    damage = 0;
+    events.push(`🌀 ${defender.username} увернулся благодаря ${defenderSign ? escMd(defenderSign.name) : "знаку"}!`);
+  }
+
+  if (!dodgedBySign) {
+    const helmetBlock = defender.inventory && defender.inventory.helmet ? (defender.inventory.helmet.block || 0) : 0;
+    if (helmetBlock > 0) {
+      const blocked = Math.ceil(damage * helmetBlock / 100);
+      damage -= blocked;
+      events.push(`🪖 ${defender.username} шлем блокирует ${blocked} урона (${helmetBlock}%).`);
+    }
   }
 
   if (damage < 0) damage = 0;
   defenderPvpState.myHp -= damage;
   events.push(`⚔️ ${attacker.username} атакует из ${weaponName}: ${damage} урона.`);
+
+  if (damage > 0 && attackerSignEffects.vampirism > 0) {
+    const healAmount = Math.max(1, Math.ceil(damage * attackerSignEffects.vampirism));
+    const beforeHp = attackerPvpState.myHp;
+    attackerPvpState.myHp = Math.min(attacker.maxHp, attackerPvpState.myHp + healAmount);
+    const actualHeal = attackerPvpState.myHp - beforeHp;
+    if (actualHeal > 0) {
+      events.push(`🩸 ${attacker.username} восстанавливает ${actualHeal} HP благодаря ${attackerSign ? escMd(attackerSign.name) : "знаку"}.`);
+    }
+  }
+
+  if (defenderPvpState.myHp <= 0) {
+    const revived = tryUseSignProtectionPvp(defender, defenderPvpState, defenderSign, events, attacker, attackerPvpState);
+    if (revived && defenderPvpState.myHp > 0) {
+      // ensure we don't report defender as dead yet
+    }
+  }
 
   return events;
 }
@@ -1606,20 +1785,25 @@ async function startClanBattle(clanAId, clanBId, chatId) {
   let fighterB = fightersB[idxB];
   applyArmorHelmetBonuses(fighterA);
   applyArmorHelmetBonuses(fighterB);
-  let stateA = { myHp: fighterA.maxHp, myStun: 0, myDamageBoostTurns: 0, myDamageReductionTurns: 0, myRadiationBoost: false };
-  let stateB = { myHp: fighterB.maxHp, myStun: 0, myDamageBoostTurns: 0, myDamageReductionTurns: 0, myRadiationBoost: false };
+  resetPlayerSignFlags(fighterA);
+  resetPlayerSignFlags(fighterB);
+  let stateA = { myHp: fighterA.maxHp, myStun: 0, myDamageBoostTurns: 0, myDamageReductionTurns: 0, myRadiationBoost: false, signRadiationUsed: false, signFinalUsed: false };
+  let stateB = { myHp: fighterB.maxHp, myStun: 0, myDamageBoostTurns: 0, myDamageReductionTurns: 0, myRadiationBoost: false, signRadiationUsed: false, signFinalUsed: false };
   let turn = 'A';
     function advanceNextA() {
       idxA++;
       if (idxA >= fightersA.length) return false;
       fighterA = fightersA[idxA];
       applyArmorHelmetBonuses(fighterA);
+      resetPlayerSignFlags(fighterA);
       stateA = {
         myHp: fighterA.maxHp,
         myStun: 0,
         myDamageBoostTurns: 0,
         myDamageReductionTurns: 0,
-        myRadiationBoost: false
+        myRadiationBoost: false,
+        signRadiationUsed: false,
+        signFinalUsed: false
       };
       return true;
     }
@@ -1628,12 +1812,15 @@ async function startClanBattle(clanAId, clanBId, chatId) {
       if (idxB >= fightersB.length) return false;
       fighterB = fightersB[idxB];
       applyArmorHelmetBonuses(fighterB);
+      resetPlayerSignFlags(fighterB);
       stateB = {
         myHp: fighterB.maxHp,
         myStun: 0,
         myDamageBoostTurns: 0,
         myDamageReductionTurns: 0,
-        myRadiationBoost: false
+        myRadiationBoost: false,
+        signRadiationUsed: false,
+        signFinalUsed: false
       };
       return true;
     }
@@ -2020,6 +2207,31 @@ if (dataCb === "infection_case") {
     return;
 }
 
+if (dataCb === "sign_case") {
+    const cost = 5000;
+    const currentInfection = player.infection || 0;
+
+    if (currentInfection < cost) {
+        await editOrSend(chatId, messageId, "⚠️ У вас недостаточно очков заражения.", {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+        return;
+    }
+
+    const picked = pickRandomSignCaseItem();
+    if (!picked) {
+        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать знак. Попробуйте позже.", {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+        return;
+    }
+
+    player.infection = currentInfection - cost;
+    saveData();
+    await giveItemToPlayer(chatId, player, picked, "🎁 Знаки 5000☣️");
+    return;
+}
+
 if (dataCb === "free_gift") {
     const now = Date.now();
     const lastGiftTime = player.lastGiftTime || 0;
@@ -2145,13 +2357,33 @@ if (dataCb === "hunt") {
     player.monster = null;
     delete player.currentBattleMsgId;
     applyArmorHelmetBonuses(player);
+    resetPlayerSignFlags(player);
 
     const monsterImages = {
         weak:  "https://i.postimg.cc/XqWfytS2/IMG-6677.jpg",
         medium: "https://i.postimg.cc/VNyd6ncg/IMG-6678.jpg",
         fat:   "https://i.postimg.cc/nz2z0W9S/IMG-6679.jpg",
-        quest: "https://i.postimg.cc/J4Gn5PrK/IMG-6680.jpg"
+        quest: "https://i.postimg.cc/J4Gn5PrK/IMG-6680.jpg",
+        boss:  "https://i.postimg.cc/TwRBcpGL/image.jpg"
     };
+
+  const bossChance = 0.05;
+  if (Math.random() < bossChance) {
+    player.monster = { id: "Ω", hp: 5300, maxHp: 5300, dmg: 600, type: "boss" };
+    saveData();
+    const sent = await bot.sendPhoto(chatId, monsterImages.boss, {
+      caption: `☠️ Ты наткнулся на босса CRIMECORE!\nHP: ${player.monster.hp}/${player.monster.maxHp}\nУрон: ${player.monster.dmg}`,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "⚔️ Атаковать", callback_data: "attack" }],
+          [{ text: "🏃 Убежать", callback_data: "run_before_start" }]
+        ]
+      }
+    });
+    player.currentBattleMsgId = sent.message_id;
+    saveData();
+    return;
+  }
 
   const roll = Math.random();
   if (roll < DANGER_EVENT_CHANCE) {
@@ -2259,31 +2491,57 @@ if (dataCb === "attack") {
     player.monster.hp -= damage;
     events.push(`⚔️ Ты нанёс ${damage} урона (${weaponName})!`);
 
+    if (damage > 0 && player.inventory.sign) {
+        const signEffects = getSignEffects(player.inventory.sign);
+        if (signEffects.vampirism > 0) {
+            const healAmount = Math.max(1, Math.ceil(damage * signEffects.vampirism));
+            const beforeHp = player.hp;
+            player.hp = Math.min(player.maxHp, player.hp + healAmount);
+            const actualHeal = player.hp - beforeHp;
+            if (actualHeal > 0) {
+                events.push(`🩸 ${player.inventory.sign.name} восстанавливает тебе ${actualHeal} HP.`);
+            }
+        }
+    }
+
     if (player.monster.hp <= 0) {
-        let infGain = (player.monster.type === "medium") ? 35 : (player.monster.type === "fat" ? 60 : 20);
+        let infGain;
+        if (player.monster.type === "boss") {
+            infGain = 200;
+        } else {
+            infGain = (player.monster.type === "medium") ? 35 : (player.monster.type === "fat" ? 60 : 20);
+        }
         if (player && (player.id === 7897895019)) {
           infGain = Math.floor(Math.random() * (500 - 250 + 1)) + 250;
         }
         if (player.radiationBoost) { infGain *= 2; player.radiationBoost = false; }
         player.infection += infGain;
         player.pendingDrop = null;
-        const dropChance = (player.monster.type === "weak") ? 0.20 : (player.monster.type === "medium") ? 0.35 : 0.60;
-        if (Math.random() < dropChance) {
-            const dropPool = [
-              ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
-              ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
-              ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
-              ...extraItems.map(it => ({ ...it, kind: "extra" })),
-              ...armorItems.map(it => ({ ...it, kind: "armor" }))
-            ];
-            const picked = pickByChance(dropPool);
-            if (picked) player.pendingDrop = { ...picked };
+        if (player.monster.type === "boss") {
+            const finalSign = getFinalSignTemplate();
+            if (finalSign) {
+                player.pendingDrop = { ...finalSign };
+            }
+        } else {
+            const dropChance = (player.monster.type === "weak") ? 0.20 : (player.monster.type === "medium") ? 0.35 : 0.60;
+            if (Math.random() < dropChance) {
+                const dropPool = [
+                  ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
+                  ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
+                  ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
+                  ...extraItems.map(it => ({ ...it, kind: "extra" })),
+                  ...armorItems.map(it => ({ ...it, kind: "armor" }))
+                ];
+                const picked = pickByChance(dropPool);
+                if (picked) player.pendingDrop = { ...picked };
+            }
         }
 
         applyArmorHelmetBonuses(player);
         player.hp = player.maxHp;
         player.monster = null;
         player.monsterStun = 0;
+        resetPlayerSignFlags(player);
 
         if (player.currentBattleMsgId) {
             await bot.deleteMessage(chatId, player.currentBattleMsgId).catch(()=>{});
@@ -2291,9 +2549,14 @@ if (dataCb === "attack") {
         }
 
         saveData();
-        let winText = `💀 Ты убил Подопытного и получил +${infGain} заражения☣️!\nТекущий уровень заражения: ${player.infection}`;
+        const victoryPrefix = player.monster.type === "boss" ? "💀 Ты уничтожил босса CRIMECORE" : "💀 Ты убил Подопытного";
+        let winText = `${victoryPrefix} и получил +${infGain} заражения☣️!\nТекущий уровень заражения: ${player.infection}`;
         if (player.pendingDrop) {
-            winText += `\n\n🎁 Выпало: ${player.pendingDrop.name}\nЧто делать?`;
+            winText += `\n\n🎁 Выпало: ${player.pendingDrop.name}`;
+            if (player.pendingDrop.kind === "sign") {
+                winText += `\n✨ Эффект: ${describeSignEffect(player.pendingDrop)}`;
+            }
+            winText += `\nЧто делать?`;
             await bot.sendMessage(chatId, `${events.join("\n")}\n\n${winText}`, {
                 reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }],[{ text: "🗑️ Выбросить", callback_data: "discard_drop" }]] }
             });
@@ -2310,15 +2573,37 @@ if (dataCb === "attack") {
         monsterText = `⚠️ Монстр оглушён и не атакует (${player.monsterStun} ходов осталось).`;
     } else {
         const helmetBlock = player.inventory.helmet ? (player.inventory.helmet.block || 0) : 0;
+        const playerSign = player.inventory.sign;
+        const signEffects = getSignEffects(playerSign);
         let incoming = player.monster.dmg;
-        if (player.damageReductionTurns && player.damageReductionTurns > 0) { 
-            incoming = Math.ceil(incoming / 2); 
-            player.damageReductionTurns--; 
+        if (player.damageReductionTurns && player.damageReductionTurns > 0) {
+            incoming = Math.ceil(incoming / 2);
+            player.damageReductionTurns--;
         }
-        const blocked = Math.ceil(incoming * (helmetBlock / 100));
-        incoming = Math.max(0, incoming - blocked);
+
+        let blocked = 0;
+        let dodged = false;
+        if (signEffects.dodgeChance > 0 && Math.random() < signEffects.dodgeChance) {
+            dodged = true;
+            incoming = 0;
+            const signName = playerSign ? playerSign.name : "знаку";
+            monsterText = `🌀 Ты увернулся от удара благодаря ${signName}!`;
+        }
+
+        if (!dodged) {
+            blocked = Math.ceil(incoming * (helmetBlock / 100));
+            incoming = Math.max(0, incoming - blocked);
+            monsterText = `💥 Монстр ударил тебя на ${incoming} урона. (Шлем заблокировал ${blocked})`;
+        }
+
         player.hp -= incoming;
-        monsterText = `💥 Монстр ударил тебя на ${incoming} урона. (Шлем заблокировал ${blocked})`;
+
+        if (player.hp <= 0) {
+            const protectionMessage = tryUseSignProtectionPve(player, playerSign);
+            if (protectionMessage) {
+                monsterText += `\n${protectionMessage}`;
+            }
+        }
 
         if (player.hp <= 0) {
             const loss = Math.floor(Math.random() * 26) + 5;
@@ -2327,6 +2612,7 @@ if (dataCb === "attack") {
             player.hp = player.maxHp;
             player.monster = null;
             player.monsterStun = 0;
+            resetPlayerSignFlags(player);
 
             if (player.currentBattleMsgId) {
                 await bot.deleteMessage(chatId, player.currentBattleMsgId).catch(()=>{});
@@ -2425,10 +2711,14 @@ if (dataCb === "attack") {
     else if (item.kind === "armor") slot = "armor";
     else if (item.kind === "mutation") slot = "mutation";
     else if (item.kind === "extra") slot = "extra";
+    else if (item.kind === "sign") slot = "sign";
 
     const prev = player.inventory[slot];
     player.inventory[slot] = item;
     player.pendingDrop = null;
+    if (slot === "sign") {
+      resetPlayerSignFlags(player);
+    }
     applyArmorHelmetBonuses(player);
     saveData();
 
@@ -2457,6 +2747,7 @@ if (dataCb === "attack") {
 🔫 Оружие: ${inv.weapon?.name || "—"} (${inv.weapon?.dmg !== undefined ? `+${inv.weapon.dmg} урона` : "—"})
 🧬 Мутация: ${inv.mutation?.name || "—"} (${inv.mutation?.crit !== undefined ? `crit ${inv.mutation.crit}%` : "—"})
 📦 Доп: ${inv.extra?.name || "—"} (${inv.extra?.effect || "—"})
+⚠️ Знак: ${inv.sign?.name || "—"} (${describeSignEffect(inv.sign)})
 
 ❤️ HP: ${player.hp}/${player.maxHp}
 ☣️ Заражение: ${player.infection || 0}
@@ -2826,6 +3117,8 @@ function startPvpFight(challenger, opponent, chatId) {
         b.pvpWins = (b.pvpWins || 0) + 1;
         a.pvpLosses = (a.pvpLosses || 0) + 1;
         await bot.sendMessage(chatId, `🏆 @${b.username} победил в PvP!`);
+        resetPlayerSignFlags(challenger);
+        resetPlayerSignFlags(opponent);
         delete challenger.pvp;
         delete opponent.pvp;
         saveData();
@@ -2835,6 +3128,8 @@ function startPvpFight(challenger, opponent, chatId) {
         a.pvpWins = (a.pvpWins || 0) + 1;
         b.pvpLosses = (b.pvpLosses || 0) + 1;
         await bot.sendMessage(chatId, `🏆 @${a.username} победил в PvP!`);
+        resetPlayerSignFlags(challenger);
+        resetPlayerSignFlags(opponent);
         delete challenger.pvp;
         delete opponent.pvp;
         saveData();
@@ -2857,6 +3152,8 @@ function startPvpFight(challenger, opponent, chatId) {
         await bot.sendMessage(chatId, `💀 @${b.username} пал в бою (от @${a.username}).`);
         await bot.sendMessage(chatId, `🏆 Победитель: @${a.username} (+${PVP_POINT} очков)`);
         // optional: award points/infection — here we just update wins/losses
+        resetPlayerSignFlags(challenger);
+        resetPlayerSignFlags(opponent);
         delete challenger.pvp;
         delete opponent.pvp;
         saveData();
@@ -2870,6 +3167,8 @@ function startPvpFight(challenger, opponent, chatId) {
     } catch (e) {
       console.error("startPvpFight error:", e);
       try { bot.sendMessage(chatId, "Ошибка в PvP: " + String(e)); } catch {}
+      resetPlayerSignFlags(challenger);
+      resetPlayerSignFlags(opponent);
       if (challenger.pvp) delete challenger.pvp;
       if (opponent.pvp) delete opponent.pvp;
       saveData();

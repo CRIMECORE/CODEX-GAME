@@ -12,7 +12,8 @@
         "helmet": null,
         "weapon": null,
         "mutation": null,
-        "extra": null
+        "extra": null,
+        "sign": null
       },
       "monster": null,
       "monsterStun": 0,
@@ -23,7 +24,9 @@
       "lastHunt": 0,
       "pendingDrop": null,
       "pvpWins": 0,
-      "pvpLosses": 0
+      "pvpLosses": 0,
+      "signRadiationUsed": false,
+      "signFinalUsed": false
     },
     "899535755": {
       "username": "id899535755",
@@ -60,7 +63,8 @@
           "chance": 20,
           "turns": 2,
           "kind": "extra"
-        }
+        },
+        "sign": null
       },
       "monster": {
         "id": 665,
@@ -82,7 +86,9 @@
       "lastMainMenuMsgId": 994,
       "lastGiftTime": 1755129005516,
       "huntCooldownWarned": false,
-      "currentBattleMsgId": 992
+      "currentBattleMsgId": 992,
+      "signRadiationUsed": false,
+      "signFinalUsed": false
     },
     "7026777373": {
       "username": "SLAVEcall",
@@ -113,7 +119,8 @@
           "chance": 20,
           "kind": "armor"
         },
-        "extra": null
+        "extra": null,
+        "sign": null
       },
       "monster": null,
       "lastHunt": 1755137350260,
@@ -141,7 +148,9 @@
       "pvpLosses": 0,
       "clanId": null,
       "huntCooldownWarned": false,
-      "lastGiftTime": 1755137412361
+      "lastGiftTime": 1755137412361,
+      "signRadiationUsed": false,
+      "signFinalUsed": false
     },
     "6423549519": {
       "id": 6423549519,
@@ -169,7 +178,8 @@
           "effect": "damage100",
           "chance": 15,
           "kind": "extra"
-        }
+        },
+        "sign": null
       },
       "monster": null,
       "monsterStun": 0,
@@ -183,7 +193,9 @@
       "pvpWins": 2,
       "clanId": 2,
       "lastMainMenuMsgId": 858,
-      "lastGiftTime": 1755129462856
+      "lastGiftTime": 1755129462856,
+      "signRadiationUsed": false,
+      "signFinalUsed": false
     }
   },
   "clans": {
