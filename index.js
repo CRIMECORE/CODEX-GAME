@@ -87,32 +87,182 @@ async function generateInventoryImage(player) {
 
 let bot; // глобальная переменная для TelegramBot
 
-// --- saveData определена выше process.on ---
-async function saveData() {
-  if (global.saving) {
-    global.saveAgain = true;
-    return;
+const fsp = fs.promises;
+
+// data file path (works with "type": "module")
+const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
+const BACKUP_FILE = process.env.DATA_BACKUP_FILE || path.join(__dirname, "data_backup.json");
+
+const DEFAULT_STATE = () => ({
+  players: {},
+  clans: {},
+  clanBattles: [],
+  clanInvites: {}
+});
+
+let data = DEFAULT_STATE(); // canonical structure
+let players = data.players;
+let clans = data.clans;
+let clanInvites = data.clanInvites;
+let clanBattles = data.clanBattles;
+
+// Prevent concurrent writes under heavy load
+let savingPromise = Promise.resolve();
+
+function normalizeState(state = {}) {
+  return {
+    players: state.players && typeof state.players === 'object' ? state.players : {},
+    clans: state.clans && typeof state.clans === 'object' ? state.clans : {},
+    clanBattles: Array.isArray(state.clanBattles) ? state.clanBattles : [],
+    clanInvites: state.clanInvites && typeof state.clanInvites === 'object' ? state.clanInvites : {}
+  };
+}
+
+function applyState(state) {
+  const normalized = normalizeState(state);
+  players = normalized.players;
+  clans = normalized.clans;
+  clanBattles = normalized.clanBattles;
+  clanInvites = normalized.clanInvites;
+  Object.assign(data, normalized);
+}
+
+async function writeStateToFile(state) {
+  const serialized = JSON.stringify(state, null, 2);
+  await fsp.writeFile(DATA_FILE, serialized, 'utf-8');
+  if (BACKUP_FILE && BACKUP_FILE !== DATA_FILE) {
+    try {
+      await fsp.writeFile(BACKUP_FILE, serialized, 'utf-8');
+    } catch (err) {
+      console.error('Ошибка записи резервного файла состояния:', err);
+    }
   }
-  global.saving = true;
+}
+
+async function readStateFromFile() {
   try {
-    global.data.players = global.players;
-    global.data.clans = global.clans;
-    global.data.clanBattles = global.clanBattles;
-    global.data.clanInvites = global.clanInvites;
-    await pool.execute(
-      `INSERT INTO bot_state (id, state, updated_at)
+    const raw = await fsp.readFile(DATA_FILE, 'utf-8');
+    return JSON.parse(raw);
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.error('Ошибка чтения файла состояния:', err);
+    }
+    return null;
+  }
+}
+
+async function writeStateToDatabase(state) {
+  if (!pool || typeof pool.execute !== 'function') return;
+  const payload = JSON.stringify(state);
+  await pool.execute(
+    `INSERT INTO bot_state (id, state, updated_at)
        VALUES (1, ?, NOW())
        ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
-      [JSON.stringify(global.data)]
-    );
+    [payload]
+  );
+}
+
+async function saveData() {
+  const currentState = normalizeState({ players, clans, clanBattles, clanInvites });
+  Object.assign(data, currentState);
+  savingPromise = savingPromise.then(async () => {
+    try {
+      await writeStateToDatabase(currentState);
+    } catch (dbErr) {
+      console.error("Ошибка записи в MySQL:", dbErr);
+    }
+    try {
+      await writeStateToFile(currentState);
+    } catch (fileErr) {
+      console.error("Ошибка записи файла состояния:", fileErr);
+    }
+  });
+  return savingPromise;
+}
+
+async function loadData() {
+  let loadedState = null;
+  let shouldSyncDb = false;
+  try {
+    const [rows] = await pool.execute("SELECT state FROM bot_state WHERE id = 1");
+    if (Array.isArray(rows) && rows.length > 0 && rows[0] && rows[0].state) {
+      const rawState = rows[0].state;
+      loadedState = typeof rawState === 'string' ? JSON.parse(rawState) : rawState;
+      console.log("MySQL: состояние загружено.");
+    } else {
+      loadedState = await readStateFromFile();
+      shouldSyncDb = true;
+      if (loadedState) {
+        console.log("MySQL: состояние не найдено, загружаем из файла.");
+      } else {
+        console.log("MySQL: состояние не найдено, создаём новое по умолчанию.");
+        loadedState = DEFAULT_STATE();
+      }
+    }
   } catch (e) {
-    console.error("Ошибка записи в MySQL:", e);
+    console.error("Ошибка чтения из MySQL:", e);
+    loadedState = await readStateFromFile();
+    if (!loadedState) {
+      loadedState = DEFAULT_STATE();
+    }
   }
-  global.saving = false;
-  if (global.saveAgain) {
-    global.saveAgain = false;
+
+  const normalized = normalizeState(loadedState);
+  applyState(normalized);
+
+  try {
+    await writeStateToFile(normalized);
+  } catch (fileErr) {
+    console.error("Ошибка записи файла состояния:", fileErr);
+  }
+
+  if (shouldSyncDb) {
+    try {
+      await writeStateToDatabase(normalized);
+    } catch (dbErr) {
+      console.error("Ошибка записи в MySQL:", dbErr);
+    }
+  }
+}
+
+function ensurePlayer(user) {
+  if (!user || typeof user.id === 'undefined') return null;
+  const key = String(user.id);
+  let p = players[key];
+  if (!p) {
+    p = {
+      id: user.id,
+      username: user.username || `id${user.id}`,
+      name: user.first_name || user.username || `id${user.id}`,
+      hp: 100,
+      maxHp: 100,
+      infection: 0,
+      clanId: null,
+      inventory: { armor: null, helmet: null, weapon: null, mutation: null, extra: null },
+      monster: null,
+      monsterStun: 0,
+      damageBoostTurns: 0,
+      damageReductionTurns: 0,
+      radiationBoost: false,
+      firstAttack: true,
+      lastHunt: 0,
+      pendingDrop: null,
+      pvpWins: 0,
+      pvpLosses: 0,
+      lastGiftTime: 0,
+      huntCooldownWarned: false,
+      currentDanger: null,
+      currentDangerMsgId: null
+    };
+    players[key] = p;
     saveData();
+  } else {
+    const newUsername = user.username || `id${user.id}`;
+    if (p.username !== newUsername) p.username = newUsername;
+    const newName = user.first_name || newUsername;
+    if (p.name !== newName) p.name = newName;
   }
+  return p;
 }
 
 process.on('uncaughtException', (err) => {
@@ -188,19 +338,6 @@ async function startBot() {
     }
 
 
-
-// data file path (works with "type": "module")
-const DATA_FILE = path.join(__dirname, "data.json");
-
-let data = { players: {}, clans: {}, clanBattles: [] }; // canonical structure
-let players = data.players;
-let clans = data.clans;
-let clanInvites = data.clanInvites || {};
-let clanBattles = data.clanBattles;
-
-// Prevent concurrent writes under heavy load
-let saving = false;
-let saveAgain = false;
 
   // await initPostgres();
   await loadData();
@@ -292,46 +429,6 @@ function escMd(str) {
     .replace(/\}/g, '\\}')
     .replace(/\./g, '\\.')
     .replace(/\!/g, '\\!');
-}
-
-function ensurePlayer(user) {
-  if (!user || typeof user.id === 'undefined') return null;
-  const key = String(user.id);
-  let p = players[key];
-  if (!p) {
-    p = {
-      id: user.id,
-      username: user.username || `id${user.id}`,
-      name: user.first_name || user.username || `id${user.id}`,
-      hp: 100,
-      maxHp: 100,
-      infection: 0,
-      clanId: null,
-      inventory: { armor: null, helmet: null, weapon: null, mutation: null, extra: null },
-      monster: null,
-      monsterStun: 0,
-      damageBoostTurns: 0,
-      damageReductionTurns: 0,
-      radiationBoost: false,
-      firstAttack: true,
-      lastHunt: 0,
-      pendingDrop: null,
-      pvpWins: 0,
-      pvpLosses: 0,
-      lastGiftTime: 0,
-      huntCooldownWarned: false,
-      currentDanger: null,
-      currentDangerMsgId: null
-    };
-    players[key] = p;
-    saveData();
-  } else {
-    const newUsername = user.username || `id${user.id}`;
-    if (p.username !== newUsername) p.username = newUsername;
-    const newName = user.first_name || newUsername;
-    if (p.name !== newName) p.name = newName;
-  }
-  return p;
 }
 
 function findPlayerByIdentifier(identifier) {
@@ -1100,71 +1197,6 @@ async function giveItemToPlayer(chatId, player, item, sourceText = "") {
     parse_mode: "Markdown",
     reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }],[{ text: "🗑️ Выбросить", callback_data: "discard_drop" }],[{ text: "⬅️ В меню", callback_data: "play" }]] }
   });
-}
-
-// ---- Data load/save and migration ----
-
-async function saveData() {
-  if (saving) {
-    saveAgain = true;
-    return;
-  }
-  saving = true;
-  try {
-    data.players = players;
-    data.clans = clans;
-    data.clanBattles = clanBattles;
-    data.clanInvites = clanInvites;
-    await pool.execute(
-      `INSERT INTO bot_state (id, state, updated_at)
-       VALUES (1, ?, NOW())
-       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
-      [JSON.stringify(data)]
-    );
-  } catch (e) {
-    console.error("Ошибка записи в PostgreSQL:", e);
-  }
-  // ...
-  saving = false;
-  if (saveAgain) {
-    saveAgain = false;
-    saveData();
-  }
-}
-
-async function loadData() {
-  try {
-  const [rows] = await pool.execute("SELECT state FROM bot_state WHERE id = 1");
-    if (rows.length === 0) {
-      // Если нет состояния — создаём пустое
-      data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
-      players = data.players;
-      clans = data.clans;
-      clanBattles = data.clanBattles;
-      clanInvites = data.clanInvites;
-      await pool.execute(
-        "INSERT INTO bot_state (id, state, updated_at) VALUES (1, ?, NOW()) ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()",
-        [JSON.stringify(data)]
-      );
-      console.log("MySQL: создано новое состояние по умолчанию.");
-      return;
-    }
-  const parsed = rows[0] && (typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state) || {};
-    players = parsed.players || {};
-    clans = parsed.clans || {};
-    clanBattles = parsed.clanBattles || [];
-    clanInvites = parsed.clanInvites || {};
-
-    // Сохраняем обратно ссылки в data
-    data.players = players;
-    data.clans = clans;
-    data.clanBattles = clanBattles;
-    data.clanInvites = clanInvites;
-
-  console.log("MySQL: состояние загружено.");
-  } catch (e) {
-    console.error("Ошибка чтения из MySQL:", e);
-  }
 }
 
 // ---- Monsters (PvE) ----
@@ -3133,4 +3165,4 @@ if (process.env.NODE_ENV !== 'test') {
 process.on('SIGTERM', () => { saveData().finally(() => process.exit(0)); });
 process.on('SIGINT', () => { saveData().finally(() => process.exit(0)); });
 
-export { mainMenuKeyboard, lootMenuKeyboard };
+export { mainMenuKeyboard, lootMenuKeyboard, saveData, loadData, ensurePlayer, players, clans, clanBattles, clanInvites };
