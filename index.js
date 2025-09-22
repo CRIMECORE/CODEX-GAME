@@ -612,10 +612,30 @@ function lootMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
-      // [{ text: "➕ Пригласить друга", callback_data: "invite_friend" }],
-                  [{ text: "⬅️ Назад", callback_data: "play" }]
+      [{ text: "🧟‍♂️ Притащить тело", callback_data: "invite_friend" }],
+      [{ text: "☣️ Заражённое тело (3000)", callback_data: "infection_case" }],
+      [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
+}
+
+function buildSubscriptionDropPool() {
+  return [
+    ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
+    ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
+    ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
+    ...extraItems.map(it => ({ ...it, kind: "extra" })),
+    ...armorItems.map(it => ({ ...it, kind: "armor" }))
+  ];
+}
+
+function pickFromSubscriptionPool() {
+  const dropPool = buildSubscriptionDropPool();
+  let picked = pickByChance(dropPool);
+  if (!picked && dropPool.length > 0) {
+    picked = dropPool[Math.floor(Math.random() * dropPool.length)];
+  }
+  return picked || null;
 }
 
 function findItemByName(name) {
@@ -1411,6 +1431,83 @@ if (dataCb === "loot_menu") {
     return;
 }
 
+if (dataCb === "invite_friend") {
+    const shareText = encodeURIComponent("заходи в первую РПГ телеграм игру CRIMECORE!!! @CRIMECOREgameBOT");
+    const inviteText = player.inviteCaseOpened
+        ? "👥 *Притащить тело* — вы уже открывали этот кейс. Но приглашать друзей всё равно полезно!"
+        : "👥 *Притащить тело* — пригласи друга и получи шанс открыть кейс!";
+
+    const keyboard = player.inviteCaseOpened
+        ? {
+            inline_keyboard: [
+                [{ text: "📤 Отправить приглашение", url: `https://t.me/share/url?url=&text=${shareText}` }],
+                [{ text: "⬅️ Назад", callback_data: "loot_menu" }]
+            ]
+        }
+        : {
+            inline_keyboard: [
+                [{ text: "📤 Отправить приглашение", url: `https://t.me/share/url?url=&text=${shareText}` }],
+                [{ text: "🎁 Открыть кейс", callback_data: "invite_case_open" }],
+                [{ text: "⬅️ Назад", callback_data: "loot_menu" }]
+            ]
+        };
+
+    await editOrSend(
+        chatId,
+        messageId,
+        `${inviteText}\n\nОтправь другу сообщение с приглашением, затем возвращайся и открой кейс.`,
+        { reply_markup: keyboard, parse_mode: "Markdown" }
+    );
+    return;
+}
+
+if (dataCb === "invite_case_open") {
+    if (player.inviteCaseOpened) {
+        await editOrSend(chatId, messageId, "❌ Вы уже открывали кейс за приглашение друга.", {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+        return;
+    }
+
+    const picked = pickFromSubscriptionPool();
+    if (!picked) {
+        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+        return;
+    }
+
+    player.inviteCaseOpened = true;
+    saveData();
+    await giveItemToPlayer(chatId, player, picked, "🎁 Кейс за приглашение друга");
+    return;
+}
+
+if (dataCb === "infection_case") {
+    const cost = 3000;
+    const currentInfection = player.infection || 0;
+
+    if (currentInfection < cost) {
+        await editOrSend(chatId, messageId, "⚠️ У вас недостаточно очков заражения.", {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+        return;
+    }
+
+    const picked = pickFromSubscriptionPool();
+    if (!picked) {
+        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+        });
+        return;
+    }
+
+    player.infection = currentInfection - cost;
+    saveData();
+    await giveItemToPlayer(chatId, player, picked, "🎁 Кейс за очки заражения");
+    return;
+}
+
 if (dataCb === "free_gift") {
     const now = Date.now();
     const lastGiftTime = player.lastGiftTime || 0;
@@ -1454,17 +1551,7 @@ if (dataCb === "free_gift") {
     // -------------------------
     // Собираем пул предметов (всё из твоих массивов)
     // -------------------------
-    const dropPool = [
-        ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
-        ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
-        ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
-        ...extraItems.map(it => ({ ...it, kind: "extra" })),
-        ...armorItems.map(it => ({ ...it, kind: "armor" }))
-    ];
-
-    // Гарантированное выпадение — используем pickByChance, если тот вернёт null — ставим случайный
-    let picked = pickByChance(dropPool);
-    if (!picked && dropPool.length > 0) picked = dropPool[Math.floor(Math.random() * dropPool.length)];
+    const picked = pickFromSubscriptionPool();
 
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
@@ -1474,7 +1561,7 @@ if (dataCb === "free_gift") {
     // Сохраняем время получения и отдаем предмет (используем существующую функцию giveItemToPlayer)
     player.lastGiftTime = now;
     // (не ставим gotFreeLoot — теперь подарок раз в 24 часа)
-    giveItemToPlayer(chatId, player, picked, "🎁 Бесплатный подарок за подписку (раз в 24 часа)");
+    await giveItemToPlayer(chatId, player, picked, "🎁 Бесплатный подарок за подписку (раз в 24 часа)");
     saveData();
 
     return;
