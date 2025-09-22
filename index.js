@@ -13,6 +13,7 @@ if (envLoadResult?.source === 'fallback' && envLoadResult.loaded) {
 
 let sharp;
 let JimpLib;
+let composePngBuffers;
 {
   const { module: sharpModule, error: sharpError } = await optionalImport('sharp');
   if (sharpModule) {
@@ -34,6 +35,18 @@ if (!sharp) {
     }
   } catch (jimpError) {
     console.warn('Failed to load jimp fallback for inventory image composition:', jimpError);
+  }
+}
+
+if (!sharp && !JimpLib) {
+  try {
+    const pngComposerModule = await import('./lib/pngComposer.js');
+    composePngBuffers = pngComposerModule?.composePngBuffers;
+    if (composePngBuffers) {
+      console.info('Using pngjs fallback for inventory image composition.');
+    }
+  } catch (pngComposerError) {
+    console.warn('Failed to load pngjs fallback for inventory image composition:', pngComposerError);
   }
 }
 
@@ -178,6 +191,15 @@ async function generateInventoryImage(player) {
       }
       const out = await baseImage.getBufferAsync(JimpLib.MIME_PNG);
       return out;
+    }
+
+    if (composePngBuffers) {
+      try {
+        const out = composePngBuffers(baseBuffer, layerBuffers);
+        return out;
+      } catch (pngComposeError) {
+        console.warn('pngjs composition failed:', pngComposeError);
+      }
     }
 
     console.warn('No image compositor available; returning null inventory image.');
