@@ -1427,9 +1427,9 @@ function lootMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
-      [{ text: "🧟‍♂️ Притащить тело", callback_data: "invite_friend" }],
-      [{ text: "Знаки 5000☣️", callback_data: "sign_case" }],
-      [{ text: "☣️ Заражённое тело (3000)", callback_data: "infection_case" }],
+      [{ text: "🧟‍♂️ Притащить тело (бесплатно)", callback_data: "invite_friend" }],
+      [{ text: "Знаки (5000 очков заражения)", callback_data: "sign_case" }],
+      [{ text: "☣️ Зараженное тело (3000 очков заражения)", callback_data: "infection_case" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
@@ -2192,13 +2192,7 @@ if (dataCb === "pvp_chat") {
     pvpRequests[user.username] = reqObj;
   }
 
-  const requestText = `🏹 @${user.username || `id${user.id}`} ищет соперника!\nЧтобы принять — /pvp @${user.username || user.id}\nЗаявка действует ${Math.floor(PVP_REQUEST_TTL/1000)} секунд.`;
-  const img = await generateInventoryImage(player);
-  if (img) {
-    await bot.sendPhoto(chatId, img, { caption: requestText, parse_mode: "Markdown" });
-  } else {
-    await bot.sendMessage(chatId, requestText, { parse_mode: "Markdown" });
-  }
+  await sendPvpRequestAnnouncement(chatId, player);
   return;
 }
 
@@ -2274,8 +2268,8 @@ if (dataCb === "loot_menu") {
 if (dataCb === "invite_friend") {
     const shareText = encodeURIComponent("заходи в первую РПГ телеграм игру CRIMECORE!!! @CRIMECOREgameBOT");
     const inviteText = player.inviteCaseOpened
-        ? "👥 *Притащить тело* — вы уже открывали этот кейс. Но приглашать друзей всё равно полезно!"
-        : "👥 *Притащить тело* — пригласи друга и получи шанс открыть кейс!";
+        ? "👥 *Притащить тело (бесплатно)* — вы уже открывали этот кейс. Но приглашать друзей всё равно полезно!"
+        : "👥 *Притащить тело (бесплатно)* — пригласи друга и получи шанс открыть кейс!";
 
     const keyboard = player.inviteCaseOpened
         ? {
@@ -2369,7 +2363,7 @@ if (dataCb === "sign_case") {
 
     player.infection = currentInfection - cost;
     saveData();
-    await giveItemToPlayer(chatId, player, picked, "🎁 Знаки 5000☣️");
+    await giveItemToPlayer(chatId, player, picked, "🎁 Знаки (5000 очков заражения)");
     return;
 }
 
@@ -3226,6 +3220,19 @@ function clearPvpRequestForPlayer(player) {
   keys.forEach(k => { if (pvpRequests[k]) delete pvpRequests[k]; });
 }
 
+async function sendPvpRequestAnnouncement(chatId, player) {
+  if (!player || !chatId) return;
+  const usernameDisplay = player.username || `id${player.id}`;
+  const acceptTarget = player.username || player.id;
+  const requestText = `🏹 @${usernameDisplay} ищет соперника!\nЧтобы принять вызов, напишите: /pvp @${acceptTarget}\nЗаявка действует ${Math.floor(PVP_REQUEST_TTL/1000)} секунд.`;
+  const img = await generateInventoryImage(player);
+  if (img) {
+    await bot.sendPhoto(chatId, img, { caption: requestText, parse_mode: "Markdown" });
+  } else {
+    await bot.sendMessage(chatId, requestText, { parse_mode: "Markdown" });
+  }
+}
+
 // Start a 1v1 PvP fight (automatic)
 function startPvpFight(challenger, opponent, chatId) {
   if (!challenger || !opponent) {
@@ -3264,7 +3271,9 @@ function startPvpFight(challenger, opponent, chatId) {
         // b wins
         b.pvpWins = (b.pvpWins || 0) + 1;
         a.pvpLosses = (a.pvpLosses || 0) + 1;
-        await bot.sendMessage(chatId, `🏆 @${b.username} победил в PvP!`);
+        const currentInfection = Number.isFinite(b.infection) ? b.infection : 0;
+        b.infection = currentInfection + PVP_POINT;
+        await bot.sendMessage(chatId, `🏆 @${b.username} победил в PvP! (+${PVP_POINT} очков заражения)`);
         resetPlayerSignFlags(challenger);
         resetPlayerSignFlags(opponent);
         delete challenger.pvp;
@@ -3275,7 +3284,9 @@ function startPvpFight(challenger, opponent, chatId) {
       if (bState.myHp <= 0) {
         a.pvpWins = (a.pvpWins || 0) + 1;
         b.pvpLosses = (b.pvpLosses || 0) + 1;
-        await bot.sendMessage(chatId, `🏆 @${a.username} победил в PvP!`);
+        const currentInfection = Number.isFinite(a.infection) ? a.infection : 0;
+        a.infection = currentInfection + PVP_POINT;
+        await bot.sendMessage(chatId, `🏆 @${a.username} победил в PvP! (+${PVP_POINT} очков заражения)`);
         resetPlayerSignFlags(challenger);
         resetPlayerSignFlags(opponent);
         delete challenger.pvp;
@@ -3298,8 +3309,10 @@ function startPvpFight(challenger, opponent, chatId) {
         a.pvpWins = (a.pvpWins || 0) + 1;
         b.pvpLosses = (b.pvpLosses || 0) + 1;
         await bot.sendMessage(chatId, `💀 @${b.username} пал в бою (от @${a.username}).`);
-        await bot.sendMessage(chatId, `🏆 Победитель: @${a.username} (+${PVP_POINT} очков)`);
-        // optional: award points/infection — here we just update wins/losses
+        const currentInfection = Number.isFinite(a.infection) ? a.infection : 0;
+        a.infection = currentInfection + PVP_POINT;
+        await bot.sendMessage(chatId, `🏆 Победитель: @${a.username} (+${PVP_POINT} очков заражения)`);
+        // победитель получил очки заражения выше
         resetPlayerSignFlags(challenger);
         resetPlayerSignFlags(opponent);
         delete challenger.pvp;
@@ -3342,7 +3355,7 @@ bot.onText(/\/pvp(?:\s+(.+))?/, async (msg, match) => {
       pvpRequests[`@${player.username}`] = reqObj;
       pvpRequests[player.username] = reqObj;
     }
-    await bot.sendMessage(chatId, `🏹 @${player.username || `id${player.id}`} ищет соперника!\nЧтобы принять вызов, напишите: /pvp @${player.username || player.id}\nЗаявка действует ${Math.floor(PVP_REQUEST_TTL/1000)} секунд.`);
+    await sendPvpRequestAnnouncement(chatId, player);
     return;
   } else {
     // accept
@@ -3367,7 +3380,7 @@ bot.onText(/\/pvp(?:\s+(.+))?/, async (msg, match) => {
 });
 
 // /pvp_request (text alias)
-bot.onText(/\/pvp_request/, (msg) => {
+bot.onText(/\/pvp_request/, async (msg) => {
   const chatId = msg.chat.id;
   const player = ensurePlayer(msg.from);
   if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
@@ -3378,7 +3391,7 @@ bot.onText(/\/pvp_request/, (msg) => {
     pvpRequests[`@${player.username}`] = reqObj;
     pvpRequests[player.username] = reqObj;
   }
-  bot.sendMessage(chatId, `🏹 @${player.username || `id${player.id}`} ищет соперника! Чтобы принять — /pvp @${player.username || player.id}`);
+  await sendPvpRequestAnnouncement(chatId, player);
 });
 
 // /inventory (text command)
