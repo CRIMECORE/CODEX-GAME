@@ -41,9 +41,22 @@ if (!sharp) {
 if (!sharp && !JimpLib) {
   try {
     const pngComposerModule = await import('./lib/pngComposer.js');
+    const isAvailable = pngComposerModule?.isPngComposerAvailable?.();
     composePngBuffers = pngComposerModule?.composePngBuffers;
-    if (composePngBuffers) {
+    if (composePngBuffers && isAvailable) {
       console.info('Using pngjs fallback for inventory image composition.');
+    } else {
+      const reason = pngComposerModule?.getPngComposerLoadError?.();
+      if (reason) {
+        const message = reason?.message || String(reason);
+        console.warn(
+          `pngjs is unavailable (${message}); inventory image generation will be skipped.`
+        );
+      } else if (isAvailable === false) {
+        console.warn('pngjs fallback is unavailable; inventory image generation will be skipped.');
+      } else {
+        console.warn('pngjs fallback could not be initialized; inventory image generation will be skipped.');
+      }
     }
   } catch (pngComposerError) {
     console.warn('Failed to load pngjs fallback for inventory image composition:', pngComposerError);
