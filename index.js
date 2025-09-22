@@ -12,13 +12,35 @@ try {
   }
 }
 
-import TelegramBot from 'node-telegram-bot-api';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import sharp from 'sharp';
 import fetch from 'node-fetch';
 import http from 'http';
+
+let TelegramBotCtorCache;
+
+async function loadTelegramBotCtor() {
+  if (TelegramBotCtorCache) return TelegramBotCtorCache;
+  try {
+    const module = await import('node-telegram-bot-api');
+    TelegramBotCtorCache = module?.default || module;
+  } catch (error) {
+    if (error?.code === 'ERR_MODULE_NOT_FOUND') {
+      console.warn(
+        "node-telegram-bot-api not found; falling back to grammy compatibility layer."
+      );
+      const compatModule = await import('./lib/telegramBotCompat.js');
+      TelegramBotCtorCache = compatModule?.default || compatModule.TelegramBotCompat;
+    } else {
+      throw error;
+    }
+  }
+  return TelegramBotCtorCache;
+}
+
+const TelegramBot = await loadTelegramBotCtor();
 
 import {
   armorItems,
