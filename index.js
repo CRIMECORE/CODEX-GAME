@@ -22,6 +22,41 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TOKEN = process.env.TELEGRAM_TOKEN || process.env.TOKEN || process.env.BOT_TOKEN;
 
+const DATA_FILE = path.join(__dirname, 'data.json');
+
+let data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
+let players = data.players;
+let clans = data.clans;
+let clanBattles = data.clanBattles;
+let clanInvites = data.clanInvites;
+
+let saving = false;
+let saveAgain = false;
+
+
+function mainMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🩸 Выйти на охоту", callback_data: "hunt" }],
+      [{ text: "🪦 Лутать тело 📦", callback_data: "loot_menu" }],
+      [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
+      [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
+      [{ text: "⚔️ PvP", callback_data: "pvp_request" }],
+      [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
+      [{ text: "📢 Канал", url: "https://t.me/crimecorebotgame" }]
+    ]
+  };
+}
+
+function lootMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
+      [{ text: "⬅️ Назад", callback_data: "play" }]
+    ]
+  };
+}
+
 
 
 function normalizeName(str) {
@@ -87,31 +122,93 @@ async function generateInventoryImage(player) {
 
 let bot; // глобальная переменная для TelegramBot
 
-// --- saveData определена выше process.on ---
 async function saveData() {
-  if (global.saving) {
-    global.saveAgain = true;
+  if (saving) {
+    saveAgain = true;
     return;
   }
-  global.saving = true;
+  saving = true;
   try {
-    global.data.players = global.players;
-    global.data.clans = global.clans;
-    global.data.clanBattles = global.clanBattles;
-    global.data.clanInvites = global.clanInvites;
+    data.players = players;
+    data.clans = clans;
+    data.clanBattles = clanBattles;
+    data.clanInvites = clanInvites;
     await pool.execute(
       `INSERT INTO bot_state (id, state, updated_at)
        VALUES (1, ?, NOW())
        ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
-      [JSON.stringify(global.data)]
+      [JSON.stringify(data)]
     );
   } catch (e) {
     console.error("Ошибка записи в MySQL:", e);
   }
-  global.saving = false;
-  if (global.saveAgain) {
-    global.saveAgain = false;
+  saving = false;
+  if (saveAgain) {
+    saveAgain = false;
     saveData();
+  }
+}
+
+async function loadData() {
+  try {
+    const [rows] = await pool.execute('SELECT state FROM bot_state WHERE id = 1');
+    if (rows.length === 0) {
+      data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
+      players = data.players;
+      clans = data.clans;
+      clanBattles = data.clanBattles;
+      clanInvites = data.clanInvites;
+      await pool.execute(
+        'INSERT INTO bot_state (id, state, updated_at) VALUES (1, ?, NOW()) ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()',
+        [JSON.stringify(data)]
+      );
+      console.log('MySQL: создано новое состояние по умолчанию.');
+      return;
+    }
+
+    const rawState = rows[0]?.state;
+    const parsed = typeof rawState === 'string' ? JSON.parse(rawState) : (rawState || {});
+
+    data = {
+      players: parsed.players || {},
+      clans: parsed.clans || {},
+      clanBattles: parsed.clanBattles || [],
+      clanInvites: parsed.clanInvites || {}
+    };
+
+    players = data.players;
+    clans = data.clans;
+    clanBattles = data.clanBattles;
+    clanInvites = data.clanInvites;
+
+    console.log('MySQL: состояние загружено.');
+  } catch (e) {
+    console.error('Ошибка чтения из MySQL:', e);
+    try {
+      const fileContent = await fs.promises.readFile(DATA_FILE, 'utf-8');
+      const parsed = JSON.parse(fileContent);
+
+      data = {
+        players: parsed.players || {},
+        clans: parsed.clans || {},
+        clanBattles: parsed.clanBattles || [],
+        clanInvites: parsed.clanInvites || {}
+      };
+
+      players = data.players;
+      clans = data.clans;
+      clanBattles = data.clanBattles;
+      clanInvites = data.clanInvites;
+
+      console.log('Локальный файл данных загружен.');
+    } catch (fileErr) {
+      console.error('Не удалось загрузить локальный файл данных:', fileErr);
+      data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
+      players = data.players;
+      clans = data.clans;
+      clanBattles = data.clanBattles;
+      clanInvites = data.clanInvites;
+    }
   }
 }
 
@@ -156,29 +253,6 @@ function restartBot() {
     }, 3000);
 }
 
-function mainMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🩸 Выйти на охоту", callback_data: "hunt" }],
-      [{ text: "🪦 Лутать тело 📦", callback_data: "loot_menu" }],
-      [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
-      [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
-      [{ text: "⚔️ PvP", callback_data: "pvp_request" }],
-      [{ text: "🏰 Кланы", callback_data: "clans_menu" }]
-    ]
-  };
-}
-
-function lootMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
-      [{ text: "➕ Бесплатный подарок", callback_data: "invite_friend" }],
-      [{ text: "⬅️ Назад", callback_data: "play" }]
-    ]
-  };
-}
-
 async function startBot() {
     if (typeof bot !== 'undefined' && bot) {
         bot.removeAllListeners();
@@ -186,22 +260,6 @@ async function startBot() {
             try { bot.stopPolling(); } catch (e) { console.error('Ошибка при stopPolling:', e.message); }
         }
     }
-
-
-
-// data file path (works with "type": "module")
-const DATA_FILE = path.join(__dirname, "data.json");
-
-let data = { players: {}, clans: {}, clanBattles: [] }; // canonical structure
-let players = data.players;
-let clans = data.clans;
-let clanInvites = data.clanInvites || {};
-let clanBattles = data.clanBattles;
-
-// Prevent concurrent writes under heavy load
-let saving = false;
-let saveAgain = false;
-
   // await initPostgres();
   await loadData();
   console.log("Бот запущен ✅");
@@ -594,30 +652,6 @@ async function editOrSend(chatId, messageId, text, options = {}) {
   }
 }
 
-function mainMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🩸 Выйти на охоту", callback_data: "hunt" }],
-      [{ text: "🪦 Лутать тело 📦", callback_data: "loot_menu" }],
-      [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
-      [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
-      [{ text: "⚔️ PvP", callback_data: "pvp_request" }],
-      [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
-      [{ text: "📢 Канал", url: "https://t.me/crimecorebotgame" }]
-    ]
-  };
-}
-
-function lootMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
-      // [{ text: "➕ Пригласить друга", callback_data: "invite_friend" }],
-                  [{ text: "⬅️ Назад", callback_data: "play" }]
-    ]
-  };
-}
-
 function findItemByName(name) {
   if (!name) return null;
   const allPools = [
@@ -640,71 +674,6 @@ async function giveItemToPlayer(chatId, player, item, sourceText = "") {
     parse_mode: "Markdown",
     reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }],[{ text: "🗑️ Выбросить", callback_data: "discard_drop" }],[{ text: "⬅️ В меню", callback_data: "play" }]] }
   });
-}
-
-// ---- Data load/save and migration ----
-
-async function saveData() {
-  if (saving) {
-    saveAgain = true;
-    return;
-  }
-  saving = true;
-  try {
-    data.players = players;
-    data.clans = clans;
-    data.clanBattles = clanBattles;
-    data.clanInvites = clanInvites;
-    await pool.execute(
-      `INSERT INTO bot_state (id, state, updated_at)
-       VALUES (1, ?, NOW())
-       ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
-      [JSON.stringify(data)]
-    );
-  } catch (e) {
-    console.error("Ошибка записи в PostgreSQL:", e);
-  }
-  // ...
-  saving = false;
-  if (saveAgain) {
-    saveAgain = false;
-    saveData();
-  }
-}
-
-async function loadData() {
-  try {
-  const [rows] = await pool.execute("SELECT state FROM bot_state WHERE id = 1");
-    if (rows.length === 0) {
-      // Если нет состояния — создаём пустое
-      data = { players: {}, clans: {}, clanBattles: [], clanInvites: {} };
-      players = data.players;
-      clans = data.clans;
-      clanBattles = data.clanBattles;
-      clanInvites = data.clanInvites;
-      await pool.execute(
-        "INSERT INTO bot_state (id, state, updated_at) VALUES (1, ?, NOW()) ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()",
-        [JSON.stringify(data)]
-      );
-      console.log("MySQL: создано новое состояние по умолчанию.");
-      return;
-    }
-  const parsed = rows[0] && (typeof rows[0].state === 'string' ? JSON.parse(rows[0].state) : rows[0].state) || {};
-    players = parsed.players || {};
-    clans = parsed.clans || {};
-    clanBattles = parsed.clanBattles || [];
-    clanInvites = parsed.clanInvites || {};
-
-    // Сохраняем обратно ссылки в data
-    data.players = players;
-    data.clans = clans;
-    data.clanBattles = clanBattles;
-    data.clanInvites = clanInvites;
-
-  console.log("MySQL: состояние загружено.");
-  } catch (e) {
-    console.error("Ошибка чтения из MySQL:", e);
-  }
 }
 
 // ---- Monsters (PvE) ----
@@ -2541,9 +2510,27 @@ if (process.env.NODE_ENV !== 'test') {
   }).listen(PORT, () => console.log(`HTTP server running on port ${PORT}`));
 }
 
+function __setStateForTests(newState = {}) {
+  if (process.env.NODE_ENV !== 'test') return;
+  players = newState.players || {};
+  clans = newState.clans || {};
+  clanBattles = newState.clanBattles || [];
+  clanInvites = newState.clanInvites || {};
+  data = { players, clans, clanBattles, clanInvites };
+  saving = false;
+  saveAgain = false;
+}
 
+function __getStateForTests() {
+  return {
+    players,
+    clans,
+    clanBattles,
+    clanInvites
+  };
+}
 
 process.on('SIGTERM', () => { saveData().finally(() => process.exit(0)); });
 process.on('SIGINT', () => { saveData().finally(() => process.exit(0)); });
 
-export { mainMenuKeyboard, lootMenuKeyboard };
+export { mainMenuKeyboard, lootMenuKeyboard, saveData, loadData, __setStateForTests, __getStateForTests };
