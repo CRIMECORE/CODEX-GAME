@@ -345,9 +345,37 @@ async function readStateFromFile() {
   }
 }
 
+function serializeStateForDatabase(state) {
+  const normalized = normalizeState(state);
+  const jsonText = JSON.stringify(normalized, null, 2);
+  return `${jsonText}\n`;
+}
+
+function deserializeStateFromDatabase(rawState) {
+  if (rawState == null) return null;
+  let text = rawState;
+  if (Buffer.isBuffer(text)) {
+    text = text.toString('utf-8');
+  }
+  if (typeof text === 'object') {
+    return normalizeState(text);
+  }
+
+  try {
+    const trimmed = String(text).trim();
+    if (!trimmed) {
+      return null;
+    }
+    return normalizeState(JSON.parse(trimmed));
+  } catch (parseErr) {
+    console.error('Не удалось распарсить состояние из базы данных:', parseErr);
+    return null;
+  }
+}
+
 async function writeStateToDatabase(state) {
   if (!pool || typeof pool.execute !== 'function') return;
-  const payload = JSON.stringify(state);
+  const payload = serializeStateForDatabase(state);
   if (DB_DIALECT === 'postgres') {
     await pool.query(
       `INSERT INTO bot_state (id, state, updated_at)
@@ -396,9 +424,16 @@ async function loadData() {
   try {
     const [rows] = await pool.execute("SELECT state FROM bot_state WHERE id = ?", [1]);
     if (Array.isArray(rows) && rows.length > 0 && rows[0] && rows[0].state) {
-      const rawState = rows[0].state;
-      loadedState = typeof rawState === 'string' ? JSON.parse(rawState) : rawState;
-      console.log(`${DB_LABEL}: состояние загружено.`);
+      loadedState = deserializeStateFromDatabase(rows[0].state);
+      if (loadedState) {
+        console.log(`${DB_LABEL}: состояние загружено.`);
+      } else {
+        console.warn(
+          `${DB_LABEL}: не удалось прочитать состояние, пытаемся загрузить из файла.`
+        );
+        loadedState = await readStateFromFile();
+        shouldSyncDb = true;
+      }
     } else {
       loadedState = await readStateFromFile();
       shouldSyncDb = true;
