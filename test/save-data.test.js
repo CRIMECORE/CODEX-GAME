@@ -31,31 +31,6 @@ async function removeIfExists(filePath) {
 
 await Promise.all(TEST_DB_ARTIFACTS.map((file) => removeIfExists(file)));
 
-async function waitForPlayerPersistInFile(filePath, playerId, attempts = 40, delayMs = 25) {
-  let lastData = null;
-  for (let i = 0; i < attempts; i += 1) {
-    try {
-      const raw = await fs.readFile(filePath, 'utf-8');
-      const data = JSON.parse(raw);
-      lastData = data;
-      if (data.players && data.players[playerId]) {
-        return data;
-      }
-    } catch (err) {
-      if (err.code !== 'ENOENT') {
-        throw err;
-      }
-    }
-    await delay(delayMs);
-  }
-
-  const error = new Error(`Player ${playerId} was not persisted to ${filePath}`);
-  if (lastData) {
-    error.lastData = lastData;
-  }
-  throw error;
-}
-
 const sqlite = sqlite3.verbose();
 
 function parseJsonColumn(value, fallback) {
@@ -278,19 +253,8 @@ async function waitForPlayerPersistInDatabase(dbPath, playerId, attempts = 40, d
 
 async function withIsolatedBot(label, run) {
   const suffix = `${label}-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const tempStateFile = path.join(__dirname, `${suffix}.json`);
-  const tempBackupFile = path.join(__dirname, `${suffix}-backup.json`);
-  const tempDbFile = TEST_DB_FILE;
-
-  await Promise.all([
-    removeIfExists(tempStateFile),
-    removeIfExists(tempBackupFile)
-  ]);
-
   process.env.NODE_ENV = 'test';
-  process.env.DATA_FILE = tempStateFile;
-  process.env.DATA_BACKUP_FILE = tempBackupFile;
-  process.env.DATABASE_FILE = tempDbFile;
+  process.env.DATABASE_FILE = TEST_DB_FILE;
 
   const module = await import(`../index.js?${suffix}`);
 
@@ -299,21 +263,14 @@ async function withIsolatedBot(label, run) {
       await module.clearBotStateTable();
     }
     await module.loadData();
-    await run({ module, tempStateFile, tempBackupFile, tempDbFile });
+    await run({ module, tempDbFile: TEST_DB_FILE });
   } finally {
-    delete process.env.DATA_FILE;
-    delete process.env.DATA_BACKUP_FILE;
     delete process.env.DATABASE_FILE;
-
-    await Promise.all([
-      removeIfExists(tempStateFile),
-      removeIfExists(tempBackupFile)
-    ]);
   }
 }
 
-test('persists player infection through save/load cycle', async () => {
-  await withIsolatedBot('infection', async ({ module, tempStateFile, tempDbFile }) => {
+test('persists player infection through save/load cycle', { concurrency: 1 }, async () => {
+  await withIsolatedBot('infection', async ({ module, tempDbFile }) => {
     const { saveData, ensurePlayer } = module;
 
     const player = ensurePlayer({ id: 123456, first_name: 'Tester', username: 'tester' });
@@ -328,24 +285,20 @@ test('persists player infection through save/load cycle', async () => {
     const persistedDb = await waitForPlayerPersistInDatabase(tempDbFile, '123456');
     assert.equal(persistedDb.players['123456'].infection, 77);
 
-    const persistedFile = await waitForPlayerPersistInFile(tempStateFile, '123456');
-    assert.equal(persistedFile.players['123456'].infection, 77);
+    const stats = await fs.stat(tempDbFile);
+    assert.ok(stats.isFile(), 'database file should exist');
   });
 });
 
-test('newly created players persist to both primary and backup files', async () => {
-  await withIsolatedBot('new-player', async ({ module, tempStateFile, tempBackupFile, tempDbFile }) => {
+test('newly created players persist to sqlite database', { concurrency: 1 }, async () => {
+  await withIsolatedBot('new-player', async ({ module, tempDbFile }) => {
     const playerId = '789654';
     const player = module.ensurePlayer({ id: Number(playerId), first_name: 'Newbie', username: 'newbie' });
 
     const persistedDb = await waitForPlayerPersistInDatabase(tempDbFile, playerId);
     assert.ok(persistedDb.players[playerId], 'player should exist in sqlite database');
     assert.equal(persistedDb.players[playerId].hp, 100);
-
-    const persistedPrimary = await waitForPlayerPersistInFile(tempStateFile, playerId);
-    assert.ok(persistedPrimary.players[playerId], 'player should exist in main data file');
-    assert.equal(persistedPrimary.players[playerId].hp, 100);
-    assert.deepEqual(persistedPrimary.players[playerId].inventory, {
+    assert.deepEqual(persistedDb.players[playerId].inventory, {
       armor: null,
       helmet: null,
       weapon: null,
@@ -353,10 +306,6 @@ test('newly created players persist to both primary and backup files', async () 
       extra: null,
       sign: null
     });
-
-    const persistedBackup = await waitForPlayerPersistInFile(tempBackupFile, playerId);
-    assert.ok(persistedBackup.players[playerId], 'player should exist in backup file');
-    assert.deepEqual(persistedBackup.players[playerId].inventory, persistedPrimary.players[playerId].inventory);
 
     // Mutate in-memory state and ensure a reload restores persisted values.
     player.hp = 5;
