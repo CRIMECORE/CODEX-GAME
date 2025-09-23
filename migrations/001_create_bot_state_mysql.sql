@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS players (
   hp INT,
   maxHp INT,
   infection INT,
-  clanId INT,
+  survivalDays INT,
+  bestSurvivalDays INT,
+  clanId BIGINT,
   inventory JSON,
   monster JSON,
   monsterStun INT,
@@ -26,27 +28,42 @@ CREATE TABLE IF NOT EXISTS players (
   pvpLosses INT,
   lastGiftTime BIGINT,
   huntCooldownWarned BOOLEAN,
-  lastMainMenuMsgId BIGINT,
-  currentBattleMsgId BIGINT,
-  pvp JSON
+  currentDanger JSON,
+  currentDangerMsgId BIGINT,
+  baseUrl VARCHAR(512),
+  pvp JSON,
+  extra JSON,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 -- Кланы
 CREATE TABLE IF NOT EXISTS clans (
-  id INT PRIMARY KEY,
+  id BIGINT PRIMARY KEY,
   name VARCHAR(128),
   points INT,
-  members JSON
+  members JSON,
+  extra JSON,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 -- Битвы кланов
 CREATE TABLE IF NOT EXISTS clan_battles (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  data JSON
+  id BIGINT PRIMARY KEY,
+  clanId BIGINT,
+  opponentClanId BIGINT,
+  status VARCHAR(32),
+  createdAt BIGINT,
+  acceptedBy BIGINT,
+  data JSON,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 -- Приглашения в кланы
 CREATE TABLE IF NOT EXISTS clan_invites (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  data JSON
+  playerId VARCHAR(64) PRIMARY KEY,
+  clanId BIGINT,
+  fromId BIGINT,
+  expires BIGINT,
+  extra JSON,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );

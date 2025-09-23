@@ -165,16 +165,25 @@ let databaseInitialized = false;
 try {
   databaseInitialized = await initializeDatabase();
   if (databaseInitialized) {
-    console.info(`${DB_LABEL}: схема bot_state инициализирована.`);
+    console.info(`${DB_LABEL}: таблицы состояния инициализированы.`);
   }
 } catch (dbInitErr) {
   console.error('Ошибка инициализации базы данных:', dbInitErr);
 }
 
-// --- Очистка таблицы bot_state (MySQL) ---
+// --- Очистка таблиц состояния ---
 export async function clearBotStateTable() {
-  await pool.execute('DELETE FROM bot_state');
-  console.log('Таблица bot_state очищена.');
+  const tables = ['bot_state', 'players', 'clans', 'clan_battles', 'clan_invites'];
+  for (const table of tables) {
+    try {
+      await pool.execute(`DELETE FROM ${table}`);
+    } catch (err) {
+      if (!/no such table/i.test(String(err.message))) {
+        console.error(`Не удалось очистить таблицу ${table}:`, err);
+      }
+    }
+  }
+  console.log('Все таблицы состояния очищены.');
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -345,59 +354,466 @@ async function readStateFromFile() {
   }
 }
 
-function serializeStateForDatabase(state) {
-  const normalized = normalizeState(state);
-  const jsonText = JSON.stringify(normalized, null, 2);
-  return `${jsonText}\n`;
-}
-
-function deserializeStateFromDatabase(rawState) {
-  if (rawState == null) return null;
-  let text = rawState;
-  if (Buffer.isBuffer(text)) {
-    text = text.toString('utf-8');
-  }
-  if (typeof text === 'object') {
-    return normalizeState(text);
-  }
-
+function toJsonText(value) {
+  if (value == null) return null;
   try {
-    const trimmed = String(text).trim();
-    if (!trimmed) {
-      return null;
-    }
-    return normalizeState(JSON.parse(trimmed));
-  } catch (parseErr) {
-    console.error('Не удалось распарсить состояние из базы данных:', parseErr);
+    return JSON.stringify(value);
+  } catch (err) {
+    console.error('Не удалось сериализовать JSON:', err);
     return null;
   }
 }
 
-async function writeStateToDatabase(state) {
-  if (!pool || typeof pool.execute !== 'function') return;
-  const payload = serializeStateForDatabase(state);
-  if (DB_DIALECT === 'postgres') {
-    await pool.query(
-      `INSERT INTO bot_state (id, state, updated_at)
-         VALUES ($1, $2::jsonb, NOW())
-         ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = NOW()`,
-      [1, payload]
-    );
-  } else if (DB_DIALECT === 'mysql') {
-    await pool.execute(
-      `INSERT INTO bot_state (id, state, updated_at)
-         VALUES (1, ?, NOW())
-         ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
-      [payload]
-    );
-  } else {
-    await pool.execute(
-      `INSERT INTO bot_state (id, state, updated_at)
-         VALUES (1, ?, CURRENT_TIMESTAMP)
-         ON CONFLICT(id) DO UPDATE SET state = excluded.state, updated_at = CURRENT_TIMESTAMP`,
-      [payload]
-    );
+function parseJsonText(value, fallback = null) {
+  if (value == null) return fallback;
+  let text = value;
+  if (Buffer.isBuffer(text)) {
+    text = text.toString('utf-8');
   }
+  if (typeof text === 'object') {
+    return text;
+  }
+  const trimmed = String(text).trim();
+  if (!trimmed) return fallback;
+  try {
+    return JSON.parse(trimmed);
+  } catch (err) {
+    console.error('Не удалось распарсить JSON из базы данных:', err);
+    return fallback;
+  }
+}
+
+function toNumberOrNull(value) {
+  if (value == null || value === '') return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function toNumberOrDefault(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function toBooleanInt(value) {
+  return value ? 1 : 0;
+}
+
+function parseBooleanColumn(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const lowered = value.toLowerCase();
+    return lowered === 'true' || lowered === '1' || lowered === 'yes';
+  }
+  return false;
+}
+
+const PLAYER_KNOWN_KEYS = new Set([
+  'id',
+  'username',
+  'name',
+  'hp',
+  'maxHp',
+  'infection',
+  'survivalDays',
+  'bestSurvivalDays',
+  'clanId',
+  'inventory',
+  'monster',
+  'monsterStun',
+  'damageBoostTurns',
+  'damageReductionTurns',
+  'radiationBoost',
+  'firstAttack',
+  'lastHunt',
+  'pendingDrop',
+  'pvpWins',
+  'pvpLosses',
+  'lastGiftTime',
+  'huntCooldownWarned',
+  'currentDanger',
+  'currentDangerMsgId',
+  'baseUrl',
+  'pvp'
+]);
+
+function normalizePlayerId(rawId, fallbackKey) {
+  if (rawId == null) {
+    const parsed = Number(fallbackKey);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const parsed = Number(rawId);
+  if (Number.isFinite(parsed)) return parsed;
+  const fromKey = Number(fallbackKey);
+  return Number.isFinite(fromKey) ? fromKey : null;
+}
+
+function extractPlayerRow(key, player) {
+  if (!player || typeof player !== 'object') return null;
+  const id = normalizePlayerId(player.id, key);
+  if (id == null) return null;
+
+  const extra = {};
+  for (const [prop, value] of Object.entries(player)) {
+    if (!PLAYER_KNOWN_KEYS.has(prop)) {
+      extra[prop] = value;
+    }
+  }
+
+  return {
+    id,
+    username: player.username ?? null,
+    name: player.name ?? null,
+    hp: toNumberOrNull(player.hp),
+    maxHp: toNumberOrNull(player.maxHp),
+    infection: toNumberOrNull(player.infection),
+    survivalDays: toNumberOrNull(player.survivalDays),
+    bestSurvivalDays: toNumberOrNull(player.bestSurvivalDays),
+    clanId: toNumberOrNull(player.clanId),
+    inventory: toJsonText(player.inventory),
+    monster: toJsonText(player.monster),
+    monsterStun: toNumberOrNull(player.monsterStun),
+    damageBoostTurns: toNumberOrNull(player.damageBoostTurns),
+    damageReductionTurns: toNumberOrNull(player.damageReductionTurns),
+    radiationBoost: toBooleanInt(player.radiationBoost),
+    firstAttack: toBooleanInt(player.firstAttack),
+    lastHunt: toNumberOrNull(player.lastHunt),
+    pendingDrop: toJsonText(player.pendingDrop),
+    pvpWins: toNumberOrNull(player.pvpWins),
+    pvpLosses: toNumberOrNull(player.pvpLosses),
+    lastGiftTime: toNumberOrNull(player.lastGiftTime),
+    huntCooldownWarned: toBooleanInt(player.huntCooldownWarned),
+    currentDanger: toJsonText(player.currentDanger),
+    currentDangerMsgId: toNumberOrNull(player.currentDangerMsgId),
+    baseUrl: player.baseUrl ?? null,
+    pvp: toJsonText(player.pvp),
+    extra: Object.keys(extra).length > 0 ? toJsonText(extra) : null
+  };
+}
+
+function buildPlayerFromRow(row) {
+  const player = {
+    id: row.id,
+    username: row.username ?? undefined,
+    name: row.name ?? undefined,
+    hp: toNumberOrDefault(row.hp, 0),
+    maxHp: toNumberOrDefault(row.maxHp, 0),
+    infection: toNumberOrDefault(row.infection, 0),
+    survivalDays: toNumberOrDefault(row.survivalDays, 0),
+    bestSurvivalDays: toNumberOrDefault(row.bestSurvivalDays, 0),
+    clanId: toNumberOrNull(row.clanId),
+    inventory: parseJsonText(row.inventory, { armor: null, helmet: null, weapon: null, mutation: null, extra: null, sign: null }),
+    monster: parseJsonText(row.monster, null),
+    monsterStun: toNumberOrDefault(row.monsterStun, 0),
+    damageBoostTurns: toNumberOrDefault(row.damageBoostTurns, 0),
+    damageReductionTurns: toNumberOrDefault(row.damageReductionTurns, 0),
+    radiationBoost: parseBooleanColumn(row.radiationBoost),
+    firstAttack: parseBooleanColumn(row.firstAttack !== undefined ? row.firstAttack : true),
+    lastHunt: toNumberOrDefault(row.lastHunt, 0),
+    pendingDrop: parseJsonText(row.pendingDrop, null),
+    pvpWins: toNumberOrDefault(row.pvpWins, 0),
+    pvpLosses: toNumberOrDefault(row.pvpLosses, 0),
+    lastGiftTime: toNumberOrDefault(row.lastGiftTime, 0),
+    huntCooldownWarned: parseBooleanColumn(row.huntCooldownWarned),
+    currentDanger: parseJsonText(row.currentDanger, null),
+    currentDangerMsgId: toNumberOrNull(row.currentDangerMsgId),
+    baseUrl: row.baseUrl ?? undefined,
+    pvp: parseJsonText(row.pvp, null)
+  };
+
+  if (!player.inventory || typeof player.inventory !== 'object') {
+    player.inventory = { armor: null, helmet: null, weapon: null, mutation: null, extra: null, sign: null };
+  }
+
+  const extra = parseJsonText(row.extra, null);
+  if (extra && typeof extra === 'object') {
+    Object.assign(player, extra);
+  }
+
+  return player;
+}
+
+const CLAN_KNOWN_KEYS = new Set(['id', 'name', 'points', 'members']);
+
+function extractClanRow(key, clan) {
+  if (!clan || typeof clan !== 'object') return null;
+  const id = toNumberOrNull(clan.id ?? key);
+  if (id == null) return null;
+
+  const extra = {};
+  for (const [prop, value] of Object.entries(clan)) {
+    if (!CLAN_KNOWN_KEYS.has(prop)) {
+      extra[prop] = value;
+    }
+  }
+
+  return {
+    id,
+    name: clan.name ?? null,
+    points: toNumberOrNull(clan.points),
+    members: toJsonText(clan.members ?? []),
+    extra: Object.keys(extra).length > 0 ? toJsonText(extra) : null
+  };
+}
+
+function buildClanFromRow(row) {
+  const clan = {
+    id: row.id,
+    name: row.name ?? '',
+    points: toNumberOrDefault(row.points, 0),
+    members: parseJsonText(row.members, [])
+  };
+  if (!Array.isArray(clan.members)) clan.members = [];
+  const extra = parseJsonText(row.extra, null);
+  if (extra && typeof extra === 'object') {
+    Object.assign(clan, extra);
+  }
+  return clan;
+}
+
+function extractClanBattleRow(battle) {
+  if (!battle || typeof battle !== 'object') return null;
+  const base = {
+    id: toNumberOrNull(battle.id) ?? Date.now(),
+    clanId: toNumberOrNull(battle.clanId),
+    opponentClanId: toNumberOrNull(battle.opponentClanId),
+    status: battle.status ?? null,
+    createdAt: toNumberOrNull(battle.createdAt),
+    acceptedBy: toNumberOrNull(battle.acceptedBy)
+  };
+
+  const extra = {};
+  for (const [prop, value] of Object.entries(battle)) {
+    if (!(prop in base)) {
+      extra[prop] = value;
+    }
+  }
+
+  return {
+    ...base,
+    data: Object.keys(extra).length > 0 ? toJsonText(extra) : null
+  };
+}
+
+function buildClanBattleFromRow(row) {
+  const battle = {
+    id: row.id,
+    clanId: toNumberOrNull(row.clanId),
+    opponentClanId: toNumberOrNull(row.opponentClanId),
+    status: row.status ?? null,
+    createdAt: toNumberOrNull(row.createdAt),
+    acceptedBy: toNumberOrNull(row.acceptedBy)
+  };
+  const extra = parseJsonText(row.data, null);
+  if (extra && typeof extra === 'object') {
+    Object.assign(battle, extra);
+  }
+  return battle;
+}
+
+function extractClanInviteRow(playerId, invite) {
+  if (!invite || typeof invite !== 'object') return null;
+  const key = String(playerId);
+  const extra = {};
+  const knownKeys = new Set(['clanId', 'fromId', 'expires']);
+  for (const [prop, value] of Object.entries(invite)) {
+    if (!knownKeys.has(prop)) {
+      extra[prop] = value;
+    }
+  }
+  return {
+    playerId: key,
+    clanId: toNumberOrNull(invite.clanId),
+    fromId: toNumberOrNull(invite.fromId),
+    expires: toNumberOrNull(invite.expires),
+    extra: Object.keys(extra).length > 0 ? toJsonText(extra) : null
+  };
+}
+
+function buildClanInviteFromRow(row) {
+  const invite = {
+    clanId: toNumberOrNull(row.clanId),
+    fromId: toNumberOrNull(row.fromId),
+    expires: toNumberOrNull(row.expires)
+  };
+  const extra = parseJsonText(row.extra, null);
+  if (extra && typeof extra === 'object') {
+    Object.assign(invite, extra);
+  }
+  return invite;
+}
+
+async function writeStateToDatabaseTables(state) {
+  if (!pool || typeof pool.execute !== 'function') return;
+  const beginSql = DB_DIALECT === 'mysql' ? 'START TRANSACTION' : 'BEGIN';
+  try {
+    await pool.execute(beginSql);
+  } catch (err) {
+    // Если транзакции не поддерживаются, продолжаем без них
+  }
+
+  const rollback = async () => {
+    try {
+      await pool.execute('ROLLBACK');
+    } catch (err) {
+      if (err && !/no transaction/i.test(String(err.message))) {
+        console.error('Ошибка отката транзакции состояния:', err);
+      }
+    }
+  };
+
+  try {
+    await pool.execute('DELETE FROM players');
+    for (const [key, player] of Object.entries(state.players || {})) {
+      const row = extractPlayerRow(key, player);
+      if (!row) continue;
+      await pool.execute(
+        `INSERT INTO players (id, username, name, hp, maxHp, infection, survivalDays, bestSurvivalDays, clanId, inventory, monster, monsterStun, damageBoostTurns, damageReductionTurns, radiationBoost, firstAttack, lastHunt, pendingDrop, pvpWins, pvpLosses, lastGiftTime, huntCooldownWarned, currentDanger, currentDangerMsgId, baseUrl, pvp, extra, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+        , [
+          row.id,
+          row.username,
+          row.name,
+          row.hp,
+          row.maxHp,
+          row.infection,
+          row.survivalDays,
+          row.bestSurvivalDays,
+          row.clanId,
+          row.inventory,
+          row.monster,
+          row.monsterStun,
+          row.damageBoostTurns,
+          row.damageReductionTurns,
+          row.radiationBoost,
+          row.firstAttack,
+          row.lastHunt,
+          row.pendingDrop,
+          row.pvpWins,
+          row.pvpLosses,
+          row.lastGiftTime,
+          row.huntCooldownWarned,
+          row.currentDanger,
+          row.currentDangerMsgId,
+          row.baseUrl,
+          row.pvp,
+          row.extra
+        ]
+      );
+    }
+
+    await pool.execute('DELETE FROM clans');
+    for (const [key, clan] of Object.entries(state.clans || {})) {
+      const row = extractClanRow(key, clan);
+      if (!row) continue;
+      await pool.execute(
+        `INSERT INTO clans (id, name, points, members, extra, updated_at)
+         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+        , [row.id, row.name, row.points, row.members, row.extra]
+      );
+    }
+
+    await pool.execute('DELETE FROM clan_battles');
+    for (const battle of state.clanBattles || []) {
+      const row = extractClanBattleRow(battle);
+      if (!row) continue;
+      await pool.execute(
+        `INSERT INTO clan_battles (id, clanId, opponentClanId, status, createdAt, acceptedBy, data, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+        , [
+          row.id,
+          row.clanId,
+          row.opponentClanId,
+          row.status,
+          row.createdAt,
+          row.acceptedBy,
+          row.data
+        ]
+      );
+    }
+
+    await pool.execute('DELETE FROM clan_invites');
+    for (const [playerId, invite] of Object.entries(state.clanInvites || {})) {
+      const row = extractClanInviteRow(playerId, invite);
+      if (!row) continue;
+      await pool.execute(
+        `INSERT INTO clan_invites (playerId, clanId, fromId, expires, extra, updated_at)
+         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+        , [row.playerId, row.clanId, row.fromId, row.expires, row.extra]
+      );
+    }
+
+    try {
+      await pool.execute('COMMIT');
+    } catch (err) {
+      if (err && !/no transaction/i.test(String(err.message))) {
+        console.error('Ошибка завершения транзакции состояния:', err);
+        throw err;
+      }
+    }
+  } catch (err) {
+    await rollback();
+    throw err;
+  }
+}
+
+async function loadStateFromDatabaseTables() {
+  if (!pool || typeof pool.execute !== 'function') {
+    return { state: DEFAULT_STATE(), hasRows: false, tablesPresent: false };
+  }
+
+  const state = DEFAULT_STATE();
+  let hasRows = false;
+
+  try {
+    const [playerRows] = await pool.execute('SELECT * FROM players');
+    for (const row of playerRows || []) {
+      hasRows = true;
+      const player = buildPlayerFromRow(row);
+      state.players[String(player.id)] = player;
+    }
+
+    const [clanRows] = await pool.execute('SELECT * FROM clans');
+    for (const row of clanRows || []) {
+      hasRows = true;
+      const clan = buildClanFromRow(row);
+      state.clans[String(clan.id)] = clan;
+    }
+
+    const [battleRows] = await pool.execute('SELECT * FROM clan_battles');
+    for (const row of battleRows || []) {
+      hasRows = true;
+      state.clanBattles.push(buildClanBattleFromRow(row));
+    }
+
+    const [inviteRows] = await pool.execute('SELECT * FROM clan_invites');
+    for (const row of inviteRows || []) {
+      hasRows = true;
+      state.clanInvites[String(row.playerId)] = buildClanInviteFromRow(row);
+    }
+  } catch (err) {
+    if (/no such table/i.test(String(err.message))) {
+      return { state: DEFAULT_STATE(), hasRows: false, tablesPresent: false };
+    }
+    throw err;
+  }
+
+  return { state: normalizeState(state), hasRows, tablesPresent: true };
+}
+
+async function loadLegacyStateFromDatabase() {
+  if (!pool || typeof pool.execute !== 'function') return null;
+  try {
+    const [rows] = await pool.execute('SELECT state FROM bot_state WHERE id = ?', [1]);
+    if (Array.isArray(rows) && rows.length > 0 && rows[0] && rows[0].state) {
+      return normalizeState(parseJsonText(rows[0].state, null));
+    }
+  } catch (err) {
+    if (!/no such table/i.test(String(err.message))) {
+      throw err;
+    }
+  }
+  return null;
 }
 
 async function saveData() {
@@ -405,7 +821,7 @@ async function saveData() {
   Object.assign(data, currentState);
   savingPromise = savingPromise.then(async () => {
     try {
-      await writeStateToDatabase(currentState);
+      await writeStateToDatabaseTables(currentState);
     } catch (dbErr) {
       console.error(`Ошибка записи в ${DB_LABEL}:`, dbErr);
     }
@@ -421,35 +837,44 @@ async function saveData() {
 async function loadData() {
   let loadedState = null;
   let shouldSyncDb = false;
+  let structuredResult = null;
+
   try {
-    const [rows] = await pool.execute("SELECT state FROM bot_state WHERE id = ?", [1]);
-    if (Array.isArray(rows) && rows.length > 0 && rows[0] && rows[0].state) {
-      loadedState = deserializeStateFromDatabase(rows[0].state);
-      if (loadedState) {
-        console.log(`${DB_LABEL}: состояние загружено.`);
-      } else {
-        console.warn(
-          `${DB_LABEL}: не удалось прочитать состояние, пытаемся загрузить из файла.`
-        );
-        loadedState = await readStateFromFile();
+    structuredResult = await loadStateFromDatabaseTables();
+    if (structuredResult?.hasRows) {
+      loadedState = structuredResult.state;
+      console.log(`${DB_LABEL}: состояние загружено из структурированных таблиц.`);
+    }
+  } catch (err) {
+    console.error(`Ошибка чтения из ${DB_LABEL}:`, err);
+  }
+
+  if (!loadedState) {
+    try {
+      const legacyState = await loadLegacyStateFromDatabase();
+      if (legacyState) {
+        loadedState = legacyState;
         shouldSyncDb = true;
+        console.log(
+          `${DB_LABEL}: найдено состояние в таблице bot_state, выполняем миграцию в новые таблицы.`
+        );
       }
-    } else {
-      loadedState = await readStateFromFile();
-      shouldSyncDb = true;
-      if (loadedState) {
-        console.log(`${DB_LABEL}: состояние не найдено, загружаем из файла.`);
-      } else {
-        console.log(`${DB_LABEL}: состояние не найдено, создаём новое по умолчанию.`);
-        loadedState = DEFAULT_STATE();
-      }
+    } catch (legacyErr) {
+      console.error(`${DB_LABEL}: ошибка чтения legacy-таблицы bot_state:`, legacyErr);
     }
-  } catch (e) {
-    console.error(`Ошибка чтения из ${DB_LABEL}:`, e);
+  }
+
+  if (!loadedState) {
     loadedState = await readStateFromFile();
-    if (!loadedState) {
-      loadedState = DEFAULT_STATE();
+    if (loadedState) {
+      shouldSyncDb = true;
+      console.log('Состояние загружено из файла.');
     }
+  }
+
+  if (!loadedState) {
+    loadedState = DEFAULT_STATE();
+    console.log('Создаём новое состояние по умолчанию.');
   }
 
   const normalized = normalizeState(loadedState);
@@ -458,12 +883,12 @@ async function loadData() {
   try {
     await writeStateToFile(normalized);
   } catch (fileErr) {
-    console.error("Ошибка записи файла состояния:", fileErr);
+    console.error('Ошибка записи файла состояния:', fileErr);
   }
 
-  if (shouldSyncDb) {
+  if (shouldSyncDb || (structuredResult && !structuredResult.hasRows)) {
     try {
-      await writeStateToDatabase(normalized);
+      await writeStateToDatabaseTables(normalized);
     } catch (dbErr) {
       console.error(`Ошибка записи в ${DB_LABEL}:`, dbErr);
     }
