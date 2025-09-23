@@ -1,4 +1,3 @@
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
@@ -260,12 +259,6 @@ async function generateInventoryImage(player) {
 
 let bot; // глобальная переменная для TelegramBot
 
-const fsp = fs.promises;
-
-// data file path (works with "type": "module")
-const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
-const BACKUP_FILE = process.env.DATA_BACKUP_FILE || path.join(__dirname, "data_backup.json");
-
 const KEEPALIVE_BASE_TARGETS = [
   process.env.KEEPALIVE_URL,
   process.env.RENDER_EXTERNAL_URL,
@@ -307,51 +300,6 @@ function applyState(state) {
   clanBattles = normalized.clanBattles;
   clanInvites = normalized.clanInvites;
   Object.assign(data, normalized);
-}
-
-async function writeFileAtomic(targetPath, contents) {
-  const dir = path.dirname(targetPath);
-  const baseName = path.basename(targetPath);
-  const tempName = `.${baseName}.${process.pid}.${Date.now()}.tmp`;
-  const tempPath = path.join(dir, tempName);
-
-  await fsp.writeFile(tempPath, contents, 'utf-8');
-  try {
-    await fsp.rename(tempPath, targetPath);
-  } catch (err) {
-    try {
-      await fsp.unlink(tempPath);
-    } catch (cleanupErr) {
-      if (cleanupErr?.code !== 'ENOENT') {
-        console.error('Не удалось удалить временный файл состояния:', cleanupErr);
-      }
-    }
-    throw err;
-  }
-}
-
-async function writeStateToFile(state) {
-  const serialized = JSON.stringify(state, null, 2);
-  await writeFileAtomic(DATA_FILE, serialized);
-  if (BACKUP_FILE && BACKUP_FILE !== DATA_FILE) {
-    try {
-      await writeFileAtomic(BACKUP_FILE, serialized);
-    } catch (err) {
-      console.error('Ошибка записи резервного файла состояния:', err);
-    }
-  }
-}
-
-async function readStateFromFile() {
-  try {
-    const raw = await fsp.readFile(DATA_FILE, 'utf-8');
-    return JSON.parse(raw);
-  } catch (err) {
-    if (err.code !== 'ENOENT') {
-      console.error('Ошибка чтения файла состояния:', err);
-    }
-    return null;
-  }
 }
 
 function toJsonText(value) {
@@ -825,11 +773,6 @@ async function saveData() {
     } catch (dbErr) {
       console.error(`Ошибка записи в ${DB_LABEL}:`, dbErr);
     }
-    try {
-      await writeStateToFile(currentState);
-    } catch (fileErr) {
-      console.error("Ошибка записи файла состояния:", fileErr);
-    }
   });
   return savingPromise;
 }
@@ -865,26 +808,12 @@ async function loadData() {
   }
 
   if (!loadedState) {
-    loadedState = await readStateFromFile();
-    if (loadedState) {
-      shouldSyncDb = true;
-      console.log('Состояние загружено из файла.');
-    }
-  }
-
-  if (!loadedState) {
     loadedState = DEFAULT_STATE();
     console.log('Создаём новое состояние по умолчанию.');
   }
 
   const normalized = normalizeState(loadedState);
   applyState(normalized);
-
-  try {
-    await writeStateToFile(normalized);
-  } catch (fileErr) {
-    console.error('Ошибка записи файла состояния:', fileErr);
-  }
 
   if (shouldSyncDb || (structuredResult && !structuredResult.hasRows)) {
     try {
