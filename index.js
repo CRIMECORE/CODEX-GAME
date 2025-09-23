@@ -150,8 +150,24 @@ import {
   normalizeItemName
 } from './lib/items.js';
 
-import pool from './lib/db.js';
+import pool, { initializeDatabase } from './lib/db.js';
 const DB_DIALECT = pool && pool.dialect ? pool.dialect : 'memory';
+const DB_LABEL =
+  DB_DIALECT === 'postgres'
+    ? 'PostgreSQL'
+    : DB_DIALECT === 'mysql'
+      ? 'MySQL'
+      : 'in-memory storage';
+
+let databaseInitialized = false;
+try {
+  databaseInitialized = await initializeDatabase();
+  if (databaseInitialized) {
+    console.info(`${DB_LABEL}: схема bot_state инициализирована.`);
+  }
+} catch (dbInitErr) {
+  console.error('Ошибка инициализации базы данных:', dbInitErr);
+}
 
 // --- Очистка таблицы bot_state (MySQL) ---
 export async function clearBotStateTable() {
@@ -307,7 +323,7 @@ async function writeStateToDatabase(state) {
   if (DB_DIALECT === 'postgres') {
     await pool.query(
       `INSERT INTO bot_state (id, state, updated_at)
-         VALUES ($1, $2, NOW())
+         VALUES ($1, $2::jsonb, NOW())
          ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = NOW()`,
       [1, payload]
     );
@@ -328,7 +344,7 @@ async function saveData() {
     try {
       await writeStateToDatabase(currentState);
     } catch (dbErr) {
-      console.error("Ошибка записи в MySQL:", dbErr);
+      console.error(`Ошибка записи в ${DB_LABEL}:`, dbErr);
     }
     try {
       await writeStateToFile(currentState);
@@ -347,19 +363,19 @@ async function loadData() {
     if (Array.isArray(rows) && rows.length > 0 && rows[0] && rows[0].state) {
       const rawState = rows[0].state;
       loadedState = typeof rawState === 'string' ? JSON.parse(rawState) : rawState;
-      console.log("MySQL: состояние загружено.");
+      console.log(`${DB_LABEL}: состояние загружено.`);
     } else {
       loadedState = await readStateFromFile();
       shouldSyncDb = true;
       if (loadedState) {
-        console.log("MySQL: состояние не найдено, загружаем из файла.");
+        console.log(`${DB_LABEL}: состояние не найдено, загружаем из файла.`);
       } else {
-        console.log("MySQL: состояние не найдено, создаём новое по умолчанию.");
+        console.log(`${DB_LABEL}: состояние не найдено, создаём новое по умолчанию.`);
         loadedState = DEFAULT_STATE();
       }
     }
   } catch (e) {
-    console.error("Ошибка чтения из MySQL:", e);
+    console.error(`Ошибка чтения из ${DB_LABEL}:`, e);
     loadedState = await readStateFromFile();
     if (!loadedState) {
       loadedState = DEFAULT_STATE();
@@ -379,7 +395,7 @@ async function loadData() {
     try {
       await writeStateToDatabase(normalized);
     } catch (dbErr) {
-      console.error("Ошибка записи в MySQL:", dbErr);
+      console.error(`Ошибка записи в ${DB_LABEL}:`, dbErr);
     }
   }
 }
