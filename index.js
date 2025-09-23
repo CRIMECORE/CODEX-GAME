@@ -157,7 +157,9 @@ const DB_LABEL =
     ? 'PostgreSQL'
     : DB_DIALECT === 'mysql'
       ? 'MySQL'
-      : 'in-memory storage';
+      : DB_DIALECT === 'sqlite'
+        ? 'SQLite'
+        : 'in-memory storage';
 
 let databaseInitialized = false;
 try {
@@ -353,11 +355,18 @@ async function writeStateToDatabase(state) {
          ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = NOW()`,
       [1, payload]
     );
-  } else {
+  } else if (DB_DIALECT === 'mysql') {
     await pool.execute(
       `INSERT INTO bot_state (id, state, updated_at)
          VALUES (1, ?, NOW())
          ON DUPLICATE KEY UPDATE state = VALUES(state), updated_at = NOW()`,
+      [payload]
+    );
+  } else {
+    await pool.execute(
+      `INSERT INTO bot_state (id, state, updated_at)
+         VALUES (1, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(id) DO UPDATE SET state = excluded.state, updated_at = CURRENT_TIMESTAMP`,
       [payload]
     );
   }
@@ -385,7 +394,7 @@ async function loadData() {
   let loadedState = null;
   let shouldSyncDb = false;
   try {
-    const [rows] = await pool.execute("SELECT state FROM bot_state WHERE id = 1");
+    const [rows] = await pool.execute("SELECT state FROM bot_state WHERE id = ?", [1]);
     if (Array.isArray(rows) && rows.length > 0 && rows[0] && rows[0].state) {
       const rawState = rows[0].state;
       loadedState = typeof rawState === 'string' ? JSON.parse(rawState) : rawState;
