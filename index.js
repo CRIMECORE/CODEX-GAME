@@ -255,8 +255,13 @@ const fsp = fs.promises;
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data.json");
 const BACKUP_FILE = process.env.DATA_BACKUP_FILE || path.join(__dirname, "data_backup.json");
 
-const KEEPALIVE_URL =
-  process.env.KEEPALIVE_URL || process.env.RENDER_EXTERNAL_URL || process.env.PING_URL || '';
+const KEEPALIVE_BASE_TARGETS = [
+  process.env.KEEPALIVE_URL,
+  process.env.RENDER_EXTERNAL_URL,
+  process.env.PING_URL,
+  process.env.KEEPALIVE_SECONDARY_URL,
+  process.env.KEEPALIVE_FALLBACK_URL
+].filter((url) => typeof url === 'string' && url.trim().length > 0);
 const KEEPALIVE_INTERVAL_MS = Number.parseInt(process.env.KEEPALIVE_INTERVAL_MS, 10) || 5 * 60 * 1000;
 
 const DEFAULT_STATE = () => ({
@@ -293,12 +298,33 @@ function applyState(state) {
   Object.assign(data, normalized);
 }
 
+async function writeFileAtomic(targetPath, contents) {
+  const dir = path.dirname(targetPath);
+  const baseName = path.basename(targetPath);
+  const tempName = `.${baseName}.${process.pid}.${Date.now()}.tmp`;
+  const tempPath = path.join(dir, tempName);
+
+  await fsp.writeFile(tempPath, contents, 'utf-8');
+  try {
+    await fsp.rename(tempPath, targetPath);
+  } catch (err) {
+    try {
+      await fsp.unlink(tempPath);
+    } catch (cleanupErr) {
+      if (cleanupErr?.code !== 'ENOENT') {
+        console.error('Не удалось удалить временный файл состояния:', cleanupErr);
+      }
+    }
+    throw err;
+  }
+}
+
 async function writeStateToFile(state) {
   const serialized = JSON.stringify(state, null, 2);
-  await fsp.writeFile(DATA_FILE, serialized, 'utf-8');
+  await writeFileAtomic(DATA_FILE, serialized);
   if (BACKUP_FILE && BACKUP_FILE !== DATA_FILE) {
     try {
-      await fsp.writeFile(BACKUP_FILE, serialized, 'utf-8');
+      await writeFileAtomic(BACKUP_FILE, serialized);
     } catch (err) {
       console.error('Ошибка записи резервного файла состояния:', err);
     }
@@ -3605,43 +3631,73 @@ bot.onText(/\/acceptbattle/, (msg) => {
 
 // === Anti-idle пинг ===
 // Используем встроенный fetch в Node.js 18+
-async function pingKeepAlive(url, timeoutMs = 10000) {
+async function pingKeepAlive(url, timeoutMs = 15000) {
   if (!url) return;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { method: 'GET', signal: controller.signal });
+    let response = await fetch(url, { method: 'HEAD', signal: controller.signal });
+    if (!response.ok && (response.status === 405 || response.status === 501)) {
+      response = await fetch(url, { method: 'GET', signal: controller.signal });
+    }
     if (response.ok) {
-      console.log('Пинг OK');
+      console.log(`Пинг OK: ${url}`);
     } else {
-      console.warn(`Пинг не удался: статус ${response.status}`);
+      console.warn(`Пинг не удался (${url}): статус ${response.status}`);
     }
   } catch (err) {
     const cause = err?.cause;
     if (cause && cause.code === 'UND_ERR_HEADERS_TIMEOUT') {
-      console.warn('Пинг не удался: таймаут ожидания заголовков');
+      console.warn(`Пинг не удался (${url}): таймаут ожидания заголовков`);
     } else if (err?.name === 'AbortError') {
-      console.warn('Пинг не удался: истек таймаут ожидания ответа');
+      console.warn(`Пинг не удался (${url}): истек таймаут ожидания ответа`);
     } else {
-      console.warn('Пинг не удался:', err?.message || err);
+      console.warn(`Пинг не удался (${url}):`, err?.message || err);
     }
   } finally {
     clearTimeout(timeout);
   }
 }
 
-if (process.env.NODE_ENV !== 'test' && KEEPALIVE_URL) {
-  const keepAliveTimer = setInterval(() => {
-    pingKeepAlive(KEEPALIVE_URL).catch((err) => {
-      console.warn('Пинг не удался:', err?.message || err);
+async function pingKeepAliveTargets(urls, timeoutMs) {
+  for (const target of urls) {
+    await pingKeepAlive(target, timeoutMs);
+  }
+}
+
+function buildKeepAliveTargets(port) {
+  const targets = new Set(KEEPALIVE_BASE_TARGETS);
+  if (port) {
+    targets.add(`http://127.0.0.1:${port}/`);
+    targets.add(`http://localhost:${port}/`);
+  }
+  return Array.from(targets);
+}
+
+let keepAliveTimer = null;
+
+function startKeepAliveScheduler(targets) {
+  if (!targets || targets.length === 0) {
+    console.info('Keep-alive ping disabled: no targets configured.');
+    return;
+  }
+
+  const uniqueTargets = Array.from(new Set(targets));
+  const logTargets = uniqueTargets.join(', ');
+  console.info(`Keep-alive ping enabled. Targets: ${logTargets}`);
+
+  const runPingCycle = () => {
+    pingKeepAliveTargets(uniqueTargets).catch((err) => {
+      console.warn('Пинг keep-alive завершился с ошибкой:', err?.message || err);
     });
-  }, KEEPALIVE_INTERVAL_MS);
+  };
+
+  runPingCycle();
+  keepAliveTimer = setInterval(runPingCycle, KEEPALIVE_INTERVAL_MS);
   if (typeof keepAliveTimer.unref === 'function') {
     keepAliveTimer.unref();
   }
-} else if (process.env.NODE_ENV !== 'test' && !KEEPALIVE_URL) {
-  console.info('Keep-alive ping disabled: no KEEPALIVE_URL configured.');
 }
 
 
@@ -3654,11 +3710,17 @@ if (process.env.NODE_ENV !== 'test' && KEEPALIVE_URL) {
 
 
 if (process.env.NODE_ENV !== 'test') {
-  const PORT = process.env.PORT || 3000;
-  http.createServer((req, res) => {
-    res.writeHead(200, {"Content-Type": "text/plain"});
-    res.end("Bot is running\n");
-  }).listen(PORT, () => console.log(`HTTP server running on port ${PORT}`));
+  const PORT = Number.parseInt(process.env.PORT, 10) || 3000;
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot is running\n');
+  });
+
+  server.listen(PORT, () => {
+    console.log(`HTTP server running on port ${PORT}`);
+    const targets = buildKeepAliveTargets(PORT);
+    startKeepAliveScheduler(targets);
+  });
 }
 
 
