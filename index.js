@@ -3087,9 +3087,6 @@ if (dataCb === "attack") {
         } else {
             infGain = (monsterType === "medium") ? 35 : (monsterType === "fat" ? 60 : 20);
         }
-        if (player && (player.id === 7897895019)) {
-          infGain = Math.floor(Math.random() * (500 - 250 + 1)) + 250;
-        }
         if (player.radiationBoost) { infGain *= 2; player.radiationBoost = false; }
         player.infection += infGain;
         player.pendingDrop = null;
