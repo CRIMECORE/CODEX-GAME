@@ -1158,7 +1158,7 @@ function buildSurvivalLeaderboardText(currentPlayer) {
   sorted.slice(0, 10).forEach((p, i) => {
     const baseName = p.username ? p.username : (p.name || `id${p.id}`);
     const escapedName = escMd(baseName);
-    const displayName = p.username === "serega33115" ? `(Разработчик) ${escapedName}` : escapedName;
+    const displayName = p.username === "serega33115" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
     const best = Number.isFinite(p?.bestSurvivalDays) ? p.bestSurvivalDays : 0;
     const current = Number.isFinite(p?.survivalDays) ? p.survivalDays : 0;
     text += `${i + 1}. ${displayName} — рекорд ${formatSurvivalTotal(best)} выживания (сейчас: ${formatSurvivalTotal(current)})\n`;
