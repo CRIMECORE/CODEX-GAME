@@ -3435,6 +3435,32 @@ bot.onText(/\/play/, (msg) => {
   editOrSend(msg.chat.id, null, `Выберите действие:`, { reply_markup: mainMenuKeyboard() });
 });
 
+// Команда /submit
+bot.onText(/\/submit/, (msg) => {
+  bot.sendMessage(
+    msg.chat.id,
+    "Опишите проблему в одном сообщении и к этому же сообщению прикрепите скриншот (подписью к скриншоту должно быть описание проблемы). ⚠️ На скриншоте должно быть чётко видно дату сообщения с инвентарём и время.\n\n❗️Скриншоты, сделанные ранее 25 сентября, рассматриваться не будут."
+  );
+
+  bot.once("photo", (photoMsg) => {
+    const fileId = photoMsg.photo[photoMsg.photo.length - 1].file_id;
+    const caption = `Новая заявка от пользователя @${photoMsg.from.username || "неизвестно"}\nID: ${photoMsg.from.id}`;
+    bot.sendPhoto(7897895019, fileId, { caption }).then((sentMsg) => {
+      // Ожидаем действия администратора
+      bot.on("text", (replyMsg) => {
+        if (replyMsg.chat.id === 7897895019 && replyMsg.reply_to_message && replyMsg.reply_to_message.message_id === sentMsg.message_id) {
+          if (replyMsg.text === "/confirm") {
+            bot.sendMessage(photoMsg.chat.id, "✅ Ваша заявка была обработана.");
+          } else if (replyMsg.text === "/decline") {
+            bot.sendMessage(photoMsg.chat.id, "❌ Ваша заявка была отклонена.");
+          }
+        }
+      });
+    });
+  });
+});
+
+
 // /start
 bot.onText(/\/start/, (msg) => {
   const player = ensurePlayer(msg.from);
