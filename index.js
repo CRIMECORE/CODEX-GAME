@@ -3439,16 +3439,27 @@ bot.onText(/\/play/, (msg) => {
 bot.onText(/\/submit/, (msg) => {
   bot.sendMessage(
     msg.chat.id,
-    "Опишите проблему в одном сообщении и к этому же сообщению прикрепите скриншот (подписью к скриншоту должно быть описание проблемы). ⚠️ На скриншоте должно быть чётко видно дату сообщения с инвентарём и время.\n\n❗️Скриншоты, сделанные ранее 25 сентября, рассматриваться не будут."
+    "Опишите проблему, укажите потерянные предметы и прикрепите скриншот. Скриншот и подпись к скриншоту — одно сообщение = одна заявка. Не нужно писать всё разными сообщениями, иначе мы этого не увидим.\n ⚠️ На скриншоте должно быть чётко видно дату сообщения с инвентарём и время.\n\n❗️Скриншоты, сделанные ранее 25 сентября, рассматриваться не будут."
   );
 
   bot.once("photo", (photoMsg) => {
     const fileId = photoMsg.photo[photoMsg.photo.length - 1].file_id;
     const caption = `Новая заявка от пользователя @${photoMsg.from.username || "неизвестно"}\nID: ${photoMsg.from.id}`;
-    bot.sendPhoto(7897895019, fileId, { caption }).then((sentMsg) => {
-      // Ожидаем действия администратора
+
+    // Сначала отправляем фото
+    bot.sendPhoto(7897895019, fileId).then((sentMsg) => {
+      // Потом отдельным сообщением подпись к фото
+      bot.sendMessage(7897895019, caption, {
+        reply_to_message_id: sentMsg.message_id,
+      });
+
+      // Ожидаем реакции администратора
       bot.on("text", (replyMsg) => {
-        if (replyMsg.chat.id === 7897895019 && replyMsg.reply_to_message && replyMsg.reply_to_message.message_id === sentMsg.message_id) {
+        if (
+          replyMsg.chat.id === 7897895019 &&
+          replyMsg.reply_to_message &&
+          replyMsg.reply_to_message.message_id === sentMsg.message_id
+        ) {
           if (replyMsg.text === "/confirm") {
             bot.sendMessage(photoMsg.chat.id, "✅ Ваша заявка была обработана.");
           } else if (replyMsg.text === "/decline") {
@@ -3459,7 +3470,6 @@ bot.onText(/\/submit/, (msg) => {
     });
   });
 });
-
 
 // /start
 bot.onText(/\/start/, (msg) => {
