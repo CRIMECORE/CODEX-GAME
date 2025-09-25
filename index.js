@@ -3435,8 +3435,8 @@ bot.onText(/\/play/, (msg) => {
   editOrSend(msg.chat.id, null, `Выберите действие:`, { reply_markup: mainMenuKeyboard() });
 });
 
-// Команда /submit
-bot.onText(/\/sheesh/, (msg) => {
+// /report
+bot.onText(/\/report/, (msg) => {
   bot.sendMessage(
     msg.chat.id,
     "Опишите проблему, укажите потерянные предметы и прикрепите скриншот. Скриншот и подпись к скриншоту — одно сообщение = одна заявка. Не нужно писать всё разными сообщениями, иначе мы этого не увидим.\n ⚠️ На скриншоте должно быть чётко видно дату сообщения с инвентарём и время.\n\n❗️Скриншоты, сделанные ранее 25 сентября, рассматриваться не будут."
@@ -3451,7 +3451,6 @@ bot.onText(/\/sheesh/, (msg) => {
       `Описание: ${userText}`;
 
     bot.sendPhoto(7897895019, fileId, { caption }).then((sentMsg) => {
-      // Ожидаем реакции администратора
       bot.on("text", (replyMsg) => {
         if (
           replyMsg.chat.id === 7897895019 &&
