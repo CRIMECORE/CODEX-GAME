@@ -3436,7 +3436,7 @@ bot.onText(/\/play/, (msg) => {
 });
 
 // Команда /submit
-bot.onText(/\/ppap/, (msg) => {
+bot.onText(/\/pap/, (msg) => {
   bot.sendMessage(
     msg.chat.id,
     "Опишите проблему, укажите потерянные предметы и прикрепите скриншот. Скриншот и подпись к скриншоту — одно сообщение = одна заявка. Не нужно писать всё разными сообщениями, иначе мы этого не увидим.\n ⚠️ На скриншоте должно быть чётко видно дату сообщения с инвентарём и время.\n\n❗️Скриншоты, сделанные ранее 25 сентября, рассматриваться не будут."
@@ -3444,15 +3444,13 @@ bot.onText(/\/ppap/, (msg) => {
 
   bot.once("photo", (photoMsg) => {
     const fileId = photoMsg.photo[photoMsg.photo.length - 1].file_id;
-    const caption = `Новая заявка от пользователя @${photoMsg.from.username || "неизвестно"}\nID: ${photoMsg.from.id}`;
+    const userText = photoMsg.caption || "— без описания —";
+    const caption = 
+      `Новая заявка от пользователя @${photoMsg.from.username || "неизвестно"}\n` +
+      `ID: ${photoMsg.from.id}\n` +
+      `Описание: ${userText}`;
 
-    // Сначала отправляем фото
-    bot.sendPhoto(7897895019, fileId).then((sentMsg) => {
-      // Потом отдельным сообщением подпись к фото
-      bot.sendMessage(7897895019, caption, {
-        reply_to_message_id: sentMsg.message_id,
-      });
-
+    bot.sendPhoto(7897895019, fileId, { caption }).then((sentMsg) => {
       // Ожидаем реакции администратора
       bot.on("text", (replyMsg) => {
         if (
