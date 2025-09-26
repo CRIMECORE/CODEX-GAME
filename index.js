@@ -850,6 +850,8 @@ function ensurePlayer(user) {
       pendingDrop: null,
       pvpWins: 0,
       pvpLosses: 0,
+      pvpRating: 0,
+      pvpRatingBest: 0,
       lastGiftTime: 0,
       huntCooldownWarned: false,
       currentDanger: null,
@@ -865,6 +867,7 @@ function ensurePlayer(user) {
     if (!Number.isFinite(p.survivalDays)) p.survivalDays = 0;
     if (!Number.isFinite(p.bestSurvivalDays)) p.bestSurvivalDays = p.survivalDays;
     if (p.bestSurvivalDays < p.survivalDays) p.bestSurvivalDays = p.survivalDays;
+    ensurePvpRatingFields(p);
   }
   return p;
 }
@@ -1089,6 +1092,8 @@ function cleanDatabase() {
     p.pendingDrop ??= null;
     p.pvpWins ??= 0;
     p.pvpLosses ??= 0;
+    p.pvpRating ??= 0;
+    p.pvpRatingBest ??= p.pvpRating;
     p.lastGiftTime ??= 0;
     p.huntCooldownWarned ??= false;
     p.currentDanger ??= null;
@@ -1140,6 +1145,29 @@ function resetSurvivalProgress(player) {
   }
 }
 
+function ensurePvpRatingFields(player) {
+  if (!player) return;
+  if (!Number.isFinite(player.pvpRating)) player.pvpRating = 0;
+  if (!Number.isFinite(player.pvpRatingBest)) player.pvpRatingBest = player.pvpRating;
+}
+
+function resetPvpRating(player) {
+  if (!player) return;
+  ensurePvpRatingFields(player);
+  player.pvpRating = 0;
+}
+
+function grantRankedPvpPoints(player, amount = RANKED_PVP_RATING_REWARD) {
+  if (!player) return { current: 0, best: 0 };
+  ensurePvpRatingFields(player);
+  const reward = Number.isFinite(amount) ? amount : RANKED_PVP_RATING_REWARD;
+  player.pvpRating += reward;
+  if (player.pvpRating > player.pvpRatingBest) {
+    player.pvpRatingBest = player.pvpRating;
+  }
+  return { current: player.pvpRating, best: player.pvpRatingBest };
+}
+
 function compareBySurvival(a, b) {
   const bestA = Number.isFinite(a?.bestSurvivalDays) ? a.bestSurvivalDays : 0;
   const bestB = Number.isFinite(b?.bestSurvivalDays) ? b.bestSurvivalDays : 0;
@@ -1172,9 +1200,45 @@ function buildSurvivalLeaderboardText(currentPlayer) {
   return text;
 }
 
+function compareByPvpRating(a, b) {
+  const ratingA = Number.isFinite(a?.pvpRating) ? a.pvpRating : 0;
+  const ratingB = Number.isFinite(b?.pvpRating) ? b.pvpRating : 0;
+  if (ratingB !== ratingA) return ratingB - ratingA;
+  const bestA = Number.isFinite(a?.pvpRatingBest) ? a.pvpRatingBest : 0;
+  const bestB = Number.isFinite(b?.pvpRatingBest) ? b.pvpRatingBest : 0;
+  if (bestB !== bestA) return bestB - bestA;
+  const winsA = Number.isFinite(a?.pvpWins) ? a.pvpWins : 0;
+  const winsB = Number.isFinite(b?.pvpWins) ? b.pvpWins : 0;
+  if (winsB !== winsA) return winsB - winsA;
+  const infectionA = Number.isFinite(a?.infection) ? a.infection : 0;
+  const infectionB = Number.isFinite(b?.infection) ? b.infection : 0;
+  return infectionB - infectionA;
+}
+
+function buildPvpRatingLeaderboardText(currentPlayer) {
+  const sorted = Object.values(players).sort(compareByPvpRating);
+  let text = "🏆 Таблица лидеров PvP рейтинга:\n\n";
+  sorted.slice(0, 10).forEach((p, i) => {
+    const baseName = p.username ? p.username : (p.name || `id${p.id}`);
+    const escapedName = escMd(baseName);
+    const displayName = p.username === "serega33115" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
+    const rating = Number.isFinite(p?.pvpRating) ? p.pvpRating : 0;
+    const best = Number.isFinite(p?.pvpRatingBest) ? p.pvpRatingBest : 0;
+    text += `${i + 1}. ${displayName} — рейтинг ${rating} (рекорд: ${best})\n`;
+  });
+  const rank = sorted.findIndex(p => currentPlayer && p.id === currentPlayer.id) + 1;
+  const currentRating = Number.isFinite(currentPlayer?.pvpRating) ? currentPlayer.pvpRating : 0;
+  const bestRating = Number.isFinite(currentPlayer?.pvpRatingBest) ? currentPlayer.pvpRatingBest : 0;
+  text += `\nТвой текущий рейтинг: ${currentRating}`;
+  text += `\nТвой рекорд: ${bestRating}`;
+  text += `\nТвоя позиция: ${rank > 0 ? rank : "—"} / ${sorted.length}`;
+  return text;
+}
+
 // --- Config constants ---
 const PVP_REQUEST_TTL = 60 * 1000;
 const PVP_POINT = 300;
+const RANKED_PVP_RATING_REWARD = 35;
 const CLAN_BATTLE_POINT = 500;
 const CLAN_BATTLE_MIN_PER_CLAN = 2;
 const CLAN_BATTLE_COUNTDOWN_MS = 20000; // 20 seconds
@@ -1680,6 +1744,8 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
   if (player.hp <= 0) {
     player.infection = Math.max(0, (player.infection || 0) - 400);
     resetSurvivalProgress(player);
+    const hadRating = Number.isFinite(player.pvpRating) && player.pvpRating > 0;
+    resetPvpRating(player);
     applyArmorHelmetBonuses(player);
     player.hp = player.maxHp;
     player.currentDanger = null;
@@ -1691,8 +1757,9 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
       `${escMd(scenario.failure)}`,
       "",
       "☣️ Ты потерял 400 заражения.",
-      "🗓 Дни выживания обнулились."
-    ].join("\n");
+      "🗓 Дни выживания обнулились.",
+      hadRating ? "🥇 Твой PvP рейтинг обнулился." : null
+    ].filter(Boolean).join("\n");
     await bot.editMessageCaption(failureText, {
       chat_id: chatId,
       message_id: targetMessageId,
@@ -1789,6 +1856,25 @@ function pickRandomItem(items) {
   return { ...rest };
 }
 
+function pickRankedItem(items, stage) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const normalized = items.map(({ chance, ...rest }) => ({ ...rest }));
+  const maxIndex = normalized.length - 1;
+  if (maxIndex < 0) return null;
+
+  if (stage <= maxIndex) {
+    const minIndex = Math.max(0, stage - 1);
+    const maxPick = Math.min(maxIndex, stage + 1);
+    const pool = normalized.slice(minIndex, maxPick + 1);
+    return { ...pool[Math.floor(Math.random() * pool.length)] };
+  }
+
+  const degradeSpan = Math.min(3, maxIndex);
+  const start = Math.max(0, maxIndex - degradeSpan);
+  const pool = normalized.slice(start);
+  return { ...pool[Math.floor(Math.random() * pool.length)] };
+}
+
 function generateRandomOpponentPlayer() {
   const randomId = Math.floor(Math.random() * 9_000_000) + 1_000_000;
   const username = `id${randomId}`;
@@ -1822,6 +1908,51 @@ function generateRandomOpponentPlayer() {
     pvpLosses: Math.floor(Math.random() * 50),
     lastGiftTime: 0,
     huntCooldownWarned: false
+  };
+
+  applyArmorHelmetBonuses(opponent);
+  opponent.hp = opponent.maxHp;
+  return opponent;
+}
+
+function generateRankedOpponentPlayer(player) {
+  const baseRating = Number.isFinite(player?.pvpRating) ? player.pvpRating : 0;
+  const stage = Math.max(0, Math.floor(baseRating / RANKED_PVP_RATING_REWARD));
+  const randomId = Math.floor(Math.random() * 9_000_000) + 1_000_000;
+  const username = `ranked_${stage}_${randomId}`;
+
+  const inventory = {
+    armor: pickRankedItem(armorItems, stage),
+    helmet: pickRankedItem(helmetItems, stage),
+    weapon: pickRankedItem(weaponItems, stage),
+    mutation: pickRankedItem(mutationItems, stage),
+    extra: pickRankedItem(extraItems, stage),
+    sign: pickRankedItem(signItems, stage)
+  };
+
+  const opponent = {
+    id: 8_000_000_000 + randomId,
+    username,
+    name: username,
+    hp: 100,
+    maxHp: 100,
+    infection: Math.max(0, stage * 500 + Math.floor(Math.random() * 500)),
+    clanId: null,
+    inventory,
+    monster: null,
+    monsterStun: 0,
+    damageBoostTurns: 0,
+    damageReductionTurns: 0,
+    radiationBoost: false,
+    firstAttack: true,
+    lastHunt: 0,
+    pendingDrop: null,
+    pvpWins: Math.floor(stage / 2) + Math.floor(Math.random() * (stage + 1)),
+    pvpLosses: Math.floor(Math.random() * Math.max(1, stage + 1)),
+    lastGiftTime: 0,
+    huntCooldownWarned: false,
+    isRankedBot: true,
+    rankedStage: stage
   };
 
   applyArmorHelmetBonuses(opponent);
@@ -1865,6 +1996,8 @@ function pvpMenuKeyboard() {
     inline_keyboard: [
       [{ text: "💬 PvP в чате", callback_data: "pvp_chat" }],
       [{ text: "🤖 Поиск противника", callback_data: "pvp_find" }],
+      [{ text: "🥇 Рейтинговый PVP", callback_data: "pvp_ranked" }],
+      [{ text: "🏆 Таблица лидеров PVP", callback_data: "pvp_leaderboard" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
@@ -2611,7 +2744,15 @@ bot.on("callback_query", async (q) => {
     const chat = q.message && q.message.chat ? q.message.chat : null;
     const chatType = chat && chat.type ? chat.type : null;
     const isGroupType = chatType === "group" || chatType === "supergroup";
-    const allowedInGroup = new Set(["pvp_request", "pvp_menu", "pvp_chat", "pvp_find", "clans_menu"]);
+    const allowedInGroup = new Set([
+      "pvp_request",
+      "pvp_menu",
+      "pvp_chat",
+      "pvp_find",
+      "pvp_ranked",
+      "pvp_leaderboard",
+      "clans_menu"
+    ]);
     if (isGroupType && !allowedInGroup.has(dataCb)) {
       const chatIdCurrent = chat.id;
       const warnText = "Эти функции доступны только в личном сообщении бота, нажми на мою аватарку и играй!";
@@ -2670,6 +2811,50 @@ if (dataCb === "pvp_find") {
   }
 
   startPvpFight(player, opponent, chatId);
+  return;
+}
+
+if (dataCb === "pvp_ranked") {
+  if (!player) {
+    await bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
+    return;
+  }
+  if (player.pvp) {
+    await bot.sendMessage(chatId, "Вы уже участвуете в PvP. Дождитесь окончания боя.");
+    return;
+  }
+
+  ensurePvpRatingFields(player);
+  const searchingMsg = await bot.sendMessage(chatId, "🥇 Поиск рейтингового соперника...");
+  await new Promise((resolve) => setTimeout(resolve, 2000 + Math.floor(Math.random() * 2000)));
+
+  const opponent = generateRankedOpponentPlayer(player);
+  const opponentStage = Number.isFinite(opponent?.rankedStage) ? opponent.rankedStage + 1 : 1;
+  const opponentText = `🥇 Найден рейтинговый соперник: @${opponent.username}\nЭтап сложности: ${opponentStage}\n☣️ Заражение: ${opponent.infection}`;
+  const opponentImg = await generateInventoryImage(opponent);
+  if (opponentImg) {
+    await bot.sendPhoto(chatId, opponentImg, { caption: opponentText, parse_mode: "Markdown" });
+  } else {
+    await bot.sendMessage(chatId, opponentText, { parse_mode: "Markdown" });
+  }
+
+  if (searchingMsg && searchingMsg.message_id) {
+    await bot.deleteMessage(chatId, searchingMsg.message_id).catch(() => {});
+  }
+
+  startPvpFight(player, opponent, chatId, {
+    ranked: true,
+    ratingReward: RANKED_PVP_RATING_REWARD,
+    rankedPlayerIds: [player.id]
+  });
+  return;
+}
+
+if (dataCb === "pvp_leaderboard") {
+  const text = buildPvpRatingLeaderboardText(player);
+  await editOrSend(chatId, messageId, text, {
+    reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "pvp_menu" }]] }
+  });
   return;
 }
 
@@ -3220,6 +3405,8 @@ if (dataCb === "attack") {
             const loss = Math.floor(Math.random() * 26) + 5;
             player.infection = Math.max(0, player.infection - loss);
             resetSurvivalProgress(player);
+            const hadRating = Number.isFinite(player.pvpRating) && player.pvpRating > 0;
+            resetPvpRating(player);
             applyArmorHelmetBonuses(player);
             player.hp = player.maxHp;
             player.monster = null;
@@ -3232,7 +3419,14 @@ if (dataCb === "attack") {
             }
 
             saveData();
-            await bot.sendMessage(chatId, `${events.join("\n")}\n\n☠️ Ты умер и потерял ${loss} уровня заражения☣️. Твой уровень: ${player.infection}\n🗓 Дни выживания обнулились.`, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+            const deathLines = [
+                `${events.join("\n")}`,
+                "",
+                `☠️ Ты умер и потерял ${loss} уровня заражения☣️. Твой уровень: ${player.infection}`,
+                "🗓 Дни выживания обнулились.",
+                hadRating ? "🥇 Твой PvP рейтинг обнулился." : null
+            ].filter(Boolean);
+            await bot.sendMessage(chatId, deathLines.join("\n"), { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
             return;
         }
     }
@@ -3354,6 +3548,7 @@ if (dataCb === "attack") {
   if (dataCb === "inventory") {
     const chatId = q.message.chat.id;
     const player = ensurePlayer(q.from);
+    ensurePvpRatingFields(player);
     let clanName = player.clanId && clans[player.clanId] ? clans[player.clanId].name : "—";
     let inv = player.inventory || {};
     let text = `🎒 Инвентарь:
@@ -3367,7 +3562,8 @@ if (dataCb === "attack") {
 
 ❤️ HP: ${player.hp}/${player.maxHp}
 ☣️ Заражение: ${player.infection || 0}
-🏆 PvP: ${player.pvpWins || 0} побед / ${player.pvpLosses || 0} поражений`;
+🏆 PvP: ${player.pvpWins || 0} побед / ${player.pvpLosses || 0} поражений
+🥇 Рейтинг PvP: ${player.pvpRating} (рекорд: ${player.pvpRatingBest})`;
 
     const img = await generateInventoryImage(player);
     const kb = { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] };
@@ -3739,7 +3935,7 @@ async function sendPvpRequestAnnouncement(chatId, player) {
 }
 
 // Start a 1v1 PvP fight (automatic)
-function startPvpFight(challenger, opponent, chatId) {
+function startPvpFight(challenger, opponent, chatId, options = {}) {
   if (!challenger || !opponent) {
     if (chatId) bot.sendMessage(chatId, "Ошибка: участники не найдены.");
     return;
@@ -3750,7 +3946,57 @@ function startPvpFight(challenger, opponent, chatId) {
     return;
   }
 
-  bot.sendMessage(chatId, `⚔️ PvP: @${challenger.username} против @${opponent.username}. Бой начинается!`);
+  const ranked = Boolean(options?.ranked);
+  const ratingReward = Number.isFinite(options?.ratingReward)
+    ? options.ratingReward
+    : RANKED_PVP_RATING_REWARD;
+  const rankedIds = new Set(
+    (options?.rankedPlayerIds && Array.isArray(options.rankedPlayerIds)
+      ? options.rankedPlayerIds
+      : ranked
+        ? [challenger.id]
+        : []
+    ).map(id => String(id))
+  );
+
+  const isRankedPlayer = (player) => ranked && rankedIds.has(String(player?.id));
+  if (isRankedPlayer(challenger)) ensurePvpRatingFields(challenger);
+  if (isRankedPlayer(opponent)) ensurePvpRatingFields(opponent);
+
+  const fightLabel = ranked ? "🥇 Рейтинговое PvP" : "⚔️ PvP";
+  bot.sendMessage(chatId, `${fightLabel}: @${challenger.username} против @${opponent.username}. Бой начинается!`);
+
+  async function concludeFight(winner, loser) {
+    winner.pvpWins = (winner.pvpWins || 0) + 1;
+    loser.pvpLosses = (loser.pvpLosses || 0) + 1;
+
+    if (isRankedPlayer(winner)) {
+      const { current, best } = grantRankedPvpPoints(winner, ratingReward);
+      await bot.sendMessage(
+        chatId,
+        `🥇 @${winner.username} побеждает в рейтинговом PvP! (+${ratingReward} рейтинга, сейчас: ${current}, рекорд: ${best})`
+      );
+    } else {
+      const currentInfection = Number.isFinite(winner.infection) ? winner.infection : 0;
+      winner.infection = currentInfection + PVP_POINT;
+      await bot.sendMessage(chatId, `🏆 @${winner.username} победил в PvP! (+${PVP_POINT} очков заражения)`);
+    }
+
+    if (isRankedPlayer(loser)) {
+      const bestBefore = Number.isFinite(loser.pvpRatingBest) ? loser.pvpRatingBest : 0;
+      resetPvpRating(loser);
+      await bot.sendMessage(
+        chatId,
+        `📉 @${loser.username} теряет текущий рейтинг. Текущий рейтинг: ${loser.pvpRating} (рекорд: ${bestBefore}).`
+      );
+    }
+
+    resetPlayerSignFlags(challenger);
+    resetPlayerSignFlags(opponent);
+    delete challenger.pvp;
+    delete opponent.pvp;
+    saveData();
+  }
 
   // turn: 'A' = challenger, 'B' = opponent
   let turn = 'A';
@@ -3773,30 +4019,13 @@ function startPvpFight(challenger, opponent, chatId) {
 
       // check if someone already dead
       if (aState.myHp <= 0) {
-        // b wins
-        b.pvpWins = (b.pvpWins || 0) + 1;
-        a.pvpLosses = (a.pvpLosses || 0) + 1;
-        const currentInfection = Number.isFinite(b.infection) ? b.infection : 0;
-        b.infection = currentInfection + PVP_POINT;
-        await bot.sendMessage(chatId, `🏆 @${b.username} победил в PvP! (+${PVP_POINT} очков заражения)`);
-        resetPlayerSignFlags(challenger);
-        resetPlayerSignFlags(opponent);
-        delete challenger.pvp;
-        delete opponent.pvp;
-        saveData();
+        await bot.sendMessage(chatId, `💀 @${a.username} пал в бою (от @${b.username}).`);
+        await concludeFight(b, a);
         return;
       }
       if (bState.myHp <= 0) {
-        a.pvpWins = (a.pvpWins || 0) + 1;
-        b.pvpLosses = (b.pvpLosses || 0) + 1;
-        const currentInfection = Number.isFinite(a.infection) ? a.infection : 0;
-        a.infection = currentInfection + PVP_POINT;
-        await bot.sendMessage(chatId, `🏆 @${a.username} победил в PvP! (+${PVP_POINT} очков заражения)`);
-        resetPlayerSignFlags(challenger);
-        resetPlayerSignFlags(opponent);
-        delete challenger.pvp;
-        delete opponent.pvp;
-        saveData();
+        await bot.sendMessage(chatId, `💀 @${b.username} пал в бою (от @${a.username}).`);
+        await concludeFight(a, b);
         return;
       }
 
@@ -3814,15 +4043,7 @@ function startPvpFight(challenger, opponent, chatId) {
         a.pvpWins = (a.pvpWins || 0) + 1;
         b.pvpLosses = (b.pvpLosses || 0) + 1;
         await bot.sendMessage(chatId, `💀 @${b.username} пал в бою (от @${a.username}).`);
-        const currentInfection = Number.isFinite(a.infection) ? a.infection : 0;
-        a.infection = currentInfection + PVP_POINT;
-        await bot.sendMessage(chatId, `🏆 Победитель: @${a.username} (+${PVP_POINT} очков заражения)`);
-        // победитель получил очки заражения выше
-        resetPlayerSignFlags(challenger);
-        resetPlayerSignFlags(opponent);
-        delete challenger.pvp;
-        delete opponent.pvp;
-        saveData();
+        await concludeFight(a, b);
         return;
       }
 
@@ -3904,6 +4125,7 @@ bot.onText(/\/inventory/, async (msg) => {
   const chatId = msg.chat.id;
   const player = ensurePlayer(msg.from);
   if (!player) return bot.sendMessage(chatId, "Ошибка: нет профиля");
+  ensurePvpRatingFields(player);
 
   let clanName = player.clanId && clans[player.clanId] ? clans[player.clanId].name : "—";
   let inv = player.inventory || {};
@@ -3917,7 +4139,8 @@ bot.onText(/\/inventory/, async (msg) => {
 
 ❤️ HP: ${player.hp}/${player.maxHp}
 ☣️ Заражение: ${player.infection || 0}
-🏆 PvP: ${player.pvpWins || 0} побед / ${player.pvpLosses || 0} поражений`;
+🏆 PvP: ${player.pvpWins || 0} побед / ${player.pvpLosses || 0} поражений
+🥇 Рейтинг PvP: ${player.pvpRating} (рекорд: ${player.pvpRatingBest})`;
 
   const img = await generateInventoryImage(player);
   const kb = { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] };
