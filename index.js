@@ -1416,6 +1416,12 @@ const DANGER_EVENT_IMAGE_URL = "https://i.postimg.cc/nLBcv1NT/image.jpg";
 const DANGER_EVENT_CHANCE = 0.1;
 const DANGER_EVENT_ITEM_CHANCE = 0.12;
 
+const SUPPLY_DROP_CHANCE = 0.12;
+const MEDKIT_IMAGE_URL = "https://i.postimg.cc/C5qk2Xwx/photo-2025-09-23-22-52-00.jpg";
+const FOOD_IMAGE_URL = "https://i.postimg.cc/bN022QJk/photo-2025-09-23-22-49-42.jpg";
+const MEDKIT_HEAL = 100;
+const FOOD_HEAL = 30;
+
 const dangerScenarios = [
   {
     id: "metro",
@@ -2933,6 +2939,34 @@ if (dataCb === "hunt") {
     delete player.currentBattleMsgId;
     applyArmorHelmetBonuses(player);
     resetPlayerSignFlags(player);
+
+    if (Math.random() < SUPPLY_DROP_CHANCE) {
+      const foundMedkit = Math.random() < 0.5;
+      const healValue = foundMedkit ? MEDKIT_HEAL : FOOD_HEAL;
+      const imageUrl = foundMedkit ? MEDKIT_IMAGE_URL : FOOD_IMAGE_URL;
+      const itemLabel = foundMedkit ? "аптечку" : "продукты";
+      const beforeHp = Number.isFinite(player.hp) ? player.hp : 0;
+      const maxHp = Number.isFinite(player.maxHp) ? player.maxHp : beforeHp;
+      const newHp = Math.min(maxHp, beforeHp + healValue);
+      player.hp = newHp;
+      const healed = Math.max(0, newHp - beforeHp);
+      const survivalNote = grantSurvivalDay(player);
+      saveData();
+      const healText = healed > 0 ? `❤️ +${healed} хп` : "❤️ Здоровье уже на максимуме.";
+      const captionLines = [
+        `📦 Ты наткнулся на заброшенный склад и нашёл ${itemLabel}!`,
+        healText,
+        "🗓 +1 день выживания."
+      ];
+      if (survivalNote) {
+        captionLines.push("", survivalNote);
+      }
+      await bot.sendPhoto(chatId, imageUrl, {
+        caption: captionLines.join("\n"),
+        reply_markup: mainMenuKeyboard()
+      });
+      return;
+    }
 
     const monsterImages = {
         weak:  "https://i.postimg.cc/XqWfytS2/IMG-6677.jpg",
