@@ -1854,7 +1854,8 @@ function mainMenuKeyboard() {
       [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
       [{ text: "⚔️ PvP", callback_data: "pvp_menu" }],
       [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
-      [{ text: "📢 Канал", url: "https://t.me/crimecorebotgame" }]
+      [{ text: "📢 Канал", url: "https://t.me/crimecorebotgame" }],
+      [{ text: "💬 Чат", url: "https://t.me/+uHiRhUs7EH0xZDVi" }]
     ]
   };
 }
