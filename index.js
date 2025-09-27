@@ -940,6 +940,7 @@ function clansMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "Создать / принять клан", callback_data: "clans_create_join" }],
+      [{ text: "Топ кланов", callback_data: "clans_top" }],
       [{ text: "Клановая битва", callback_data: "clans_battle_info" }],
       [{ text: "Захват чата", callback_data: "clans_assault_info" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
@@ -1256,6 +1257,26 @@ function buildPvpRatingLeaderboardText(currentPlayer) {
   text += `\nТвой текущий рейтинг: ${currentRating}`;
   text += `\nТвой рекорд: ${bestRating}`;
   text += `\nТвоя позиция: ${rank > 0 ? rank : "—"} / ${sorted.length}`;
+  return text;
+}
+
+function buildClanTopText(player) {
+  const sorted = Object.values(clans).sort((a, b) => (Number(b?.points) || 0) - (Number(a?.points) || 0));
+  if (sorted.length === 0) {
+    return null;
+  }
+
+  let text = `🏰 Топ кланов:\n\n`;
+  sorted.slice(0, 10).forEach((clan, index) => {
+    const points = Number(clan?.points) || 0;
+    const memberCount = Array.isArray(clan?.members) ? clan.members.length : 0;
+    text += `${index + 1}. ${escMd(clan.name)} — ${points} очков (${memberCount} участников)\n`;
+  });
+
+  const rankIndex = sorted.findIndex((clan) => player?.clanId && Number(clan.id) === Number(player.clanId));
+  const playerClan = player?.clanId ? clans[String(player.clanId)] : null;
+  text += `\nТвой клан: ${playerClan ? escMd(playerClan.name) : "—"}\n`;
+  text += `Твоё место: ${rankIndex >= 0 ? rankIndex + 1 : "—"} из ${sorted.length}`;
   return text;
 }
 
@@ -2347,7 +2368,7 @@ function ensureClanHasLeader(clan) {
 // ---- Clan assault state ----
 const chatAssaults = Object.create(null);
 let assaultExpeditionSeq = 1;
-const ASSAULT_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const ASSAULT_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 const ASSAULT_EXPEDITION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const ASSAULT_ATTACK_REWARD_POINTS = 150;
 const ASSAULT_POSITIVE_REWARD_POINTS = 300;
@@ -2426,9 +2447,11 @@ async function beginAssaultExpedition(state) {
     return;
   }
 
-  if (!Number.isFinite(state.nextMemberIndex)) state.nextMemberIndex = 0;
-  const memberId = members[state.nextMemberIndex % members.length];
-  state.nextMemberIndex = (state.nextMemberIndex + 1) % members.length;
+  const memberId = pickRandom(members);
+  if (!memberId) {
+    scheduleNextAssaultExpedition(state);
+    return;
+  }
   const member = players[String(memberId)];
   const displayName = formatPlayerNameNoMention(member);
   const expeditionId = `${Date.now()}_${assaultExpeditionSeq++}`;
@@ -3130,13 +3153,12 @@ bot.onText(/\/assault(?:@\w+)?/, async (msg) => {
     chatId,
     clanId: clan.id,
     initiatedBy: player.id,
-    nextMemberIndex: 0,
     pendingExpedition: null,
     nextExpeditionTimer: null
   };
   chatAssaults[String(chatId)] = state;
 
-  const introText = `🏴 Клан "${clan.name}" установил базу в этом чате. Теперь разведчики смогут исследовать территорию и приносить очки клану.\nКаждый участник клана будет автоматически отправляться на разведку каждые 30 минут.\nДругие жители чата могут атаковать разведчиков, чтобы перехватить добычу.\nЧтобы демонтировать базу, отправьте /unassault.`;
+  const introText = `🏴 Клан "${clan.name}" установил базу в этом чате. Теперь разведчики смогут исследовать территорию и приносить очки клану.\nКаждые 10 минут один случайный участник клана будет автоматически отправляться на разведку.\nДругие жители чата могут атаковать разведчиков, чтобы перехватить добычу.\nЧтобы демонтировать базу, отправьте /unassault.`;
   await bot.sendMessage(chatId, introText).catch(() => {});
   ensureClanHasLeader(clan);
   await beginAssaultExpedition(state);
@@ -3184,6 +3206,7 @@ bot.on("callback_query", async (q) => {
       "pvp_ranked",
       "pvp_leaderboard",
       "clans_menu",
+      "clans_top",
       "clans_create_join",
       "clans_battle_info",
       "clans_assault_info"
@@ -3300,6 +3323,20 @@ if (dataCb === "clans_menu") {
   return;
 }
 
+if (dataCb === "clans_top") {
+  const text = buildClanTopText(player);
+  const replyMarkup = { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "clans_menu" }]] };
+  if (!text) {
+    await editOrSend(chatId, messageId, "Пока нет зарегистрированных кланов.", {
+      reply_markup: replyMarkup,
+      parse_mode: null
+    });
+  } else {
+    await editOrSend(chatId, messageId, text, { reply_markup: replyMarkup });
+  }
+  return;
+}
+
 if (dataCb === "clans_create_join") {
   const text = [
     "🏗 Управление кланом",
@@ -3342,7 +3379,7 @@ if (dataCb === "clans_assault_info") {
     "🚩 Захват чата",
     "",
     "• Напишите `/assault` в групповом чате, где находится бот, чтобы установить базу своего клана.",
-    "• Каждый участник клана будет автоматически отправляться на разведку раз в 30 минут и приносить очки.",
+    "• Каждые 10 минут один случайный участник клана будет автоматически отправляться на разведку и приносить очки.",
     "• Под сообщением разведчика появится кнопка «Атаковать». Любой участник чата может нажать её, чтобы попытаться сорвать добычу и получить очки для своего клана.",
     "• Если за 5 минут нападения не было, бот определяет исход экспедиции и начисляет 300, 100 или 30 очков в зависимости от успеха.",
     "• Команда `/unassault` демонтирует базу и останавливает разведки."
@@ -4364,15 +4401,8 @@ bot.onText(/\/clantop/, (msg) => {
   const chatId = msg.chat.id;
   const player = ensurePlayer(msg.from);
   if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
-  const sorted = Object.values(clans).sort((a,b) => (b.points || 0) - (a.points || 0));
-  if (sorted.length === 0) return bot.sendMessage(chatId, "Пока нет зарегистрированных кланов.");
-  let text = `🏰 Топ кланов:\n\n`;
-  sorted.slice(0,10).forEach((c,i) => {
-    text += `${i+1}. ${escMd(c.name)} — ${c.points} очков (${(c.members||[]).length} участников)\n`;
-  });
-  const rankIndex = sorted.findIndex(c => c.id === player.clanId);
-  text += `\nТвой клан: ${player.clanId ? (clans[String(player.clanId)] ? clans[String(player.clanId)].name : "—") : "—"}\n`;
-  text += `Твоё место: ${rankIndex >= 0 ? rankIndex + 1 : "—"} из ${sorted.length}`;
+  const text = buildClanTopText(player);
+  if (!text) return bot.sendMessage(chatId, "Пока нет зарегистрированных кланов.");
   bot.sendMessage(chatId, text);
 });
 
