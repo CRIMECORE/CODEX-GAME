@@ -855,7 +855,10 @@ function ensurePlayer(user) {
       lastGiftTime: 0,
       huntCooldownWarned: false,
       currentDanger: null,
-      currentDangerMsgId: null
+      currentDangerMsgId: null,
+      inviteCasesAvailable: 0,
+      inviteCasesOpened: 0,
+      invitedUserIds: []
     };
     players[key] = p;
     saveData();
@@ -868,8 +871,33 @@ function ensurePlayer(user) {
     if (!Number.isFinite(p.bestSurvivalDays)) p.bestSurvivalDays = p.survivalDays;
     if (p.bestSurvivalDays < p.survivalDays) p.bestSurvivalDays = p.survivalDays;
     ensurePvpRatingFields(p);
+    if (typeof p.inviteCasesAvailable !== 'number' || !Number.isFinite(p.inviteCasesAvailable)) {
+      p.inviteCasesAvailable = 0;
+    }
+    if (typeof p.inviteCasesOpened !== 'number' || !Number.isFinite(p.inviteCasesOpened)) {
+      p.inviteCasesOpened = p.inviteCaseOpened ? 1 : 0;
+    }
+    if (!Array.isArray(p.invitedUserIds)) {
+      p.invitedUserIds = [];
+    } else {
+      p.invitedUserIds = p.invitedUserIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+    }
+    if (typeof p.inviteCaseOpened === 'boolean') {
+      delete p.inviteCaseOpened;
+    }
   }
   return p;
+}
+
+function parseReferralPayload(payload) {
+  if (!payload) return null;
+  const trimmed = String(payload).trim();
+  const match = /^ref_(\d{1,20})$/i.exec(trimmed);
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Number.isFinite(id) ? id : null;
 }
 
 process.on('uncaughtException', (err) => {
@@ -3477,38 +3505,38 @@ if (dataCb === "loot_menu") {
 }
 
 if (dataCb === "invite_friend") {
-    const shareText = encodeURIComponent("заходи в первую РПГ телеграм игру CRIMECORE!!! @CRIMECOREgameBOT");
-    const inviteText = player.inviteCaseOpened
-        ? "👥 *Притащить тело (бесплатно)* — вы уже открывали этот кейс. Но приглашать друзей всё равно полезно!"
-        : "👥 *Притащить тело (бесплатно)* — пригласи друга и получи шанс открыть кейс!";
+    const referralLink = `https://t.me/CRIMECOREgameBOT?start=ref_${player.id}`;
+    const shareText = encodeURIComponent(`заходи в первую РПГ телеграм игру CRIMECORE!!! ${referralLink}`);
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${shareText}`;
+    const available = Number(player.inviteCasesAvailable) || 0;
+    const inviteText = [
+        "👥 *Притащить тело (бесплатно)* — пригласи друга и получи кейс за каждого нового игрока!",
+        "Каждый новый игрок должен впервые запустить бота именно по твоей ссылке, чтобы награда стала доступна.",
+        `🔗 Твоя персональная ссылка: \`${referralLink}\``,
+        available > 0
+            ? `🎁 Доступно открытий кейса: ${available}`
+            : "🎁 Пока нет доступных кейсов — пригласи нового игрока."
+    ].join("\n\n");
 
-    const keyboard = player.inviteCaseOpened
-        ? {
-            inline_keyboard: [
-                [{ text: "📤 Отправить приглашение", url: `https://t.me/share/url?url=&text=${shareText}` }],
-                [{ text: "⬅️ Назад", callback_data: "loot_menu" }]
-            ]
-        }
-        : {
-            inline_keyboard: [
-                [{ text: "📤 Отправить приглашение", url: `https://t.me/share/url?url=&text=${shareText}` }],
-                [{ text: "🎁 Открыть кейс", callback_data: "invite_case_open" }],
-                [{ text: "⬅️ Назад", callback_data: "loot_menu" }]
-            ]
-        };
+    const keyboard = { inline_keyboard: [[{ text: "📤 Отправить приглашение", url: shareUrl }]] };
+    if (available > 0) {
+        keyboard.inline_keyboard.push([
+            { text: `🎁 Открыть кейс (${available})`, callback_data: "invite_case_open" }
+        ]);
+    }
+    keyboard.inline_keyboard.push([{ text: "⬅️ Назад", callback_data: "loot_menu" }]);
 
-    await editOrSend(
-        chatId,
-        messageId,
-        `${inviteText}\n\nОтправь другу сообщение с приглашением, затем возвращайся и открой кейс.`,
-        { reply_markup: keyboard, parse_mode: "Markdown" }
-    );
+    await editOrSend(chatId, messageId, inviteText, {
+        reply_markup: keyboard,
+        parse_mode: "Markdown"
+    });
     return;
 }
 
 if (dataCb === "invite_case_open") {
-    if (player.inviteCaseOpened) {
-        await editOrSend(chatId, messageId, "❌ Вы уже открывали кейс за приглашение друга.", {
+    const available = Number(player.inviteCasesAvailable) || 0;
+    if (available <= 0) {
+        await editOrSend(chatId, messageId, "❌ У вас нет доступных кейсов за приглашения. Пригласите нового игрока по вашей ссылке.", {
             reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
         });
         return;
@@ -3522,7 +3550,8 @@ if (dataCb === "invite_case_open") {
         return;
     }
 
-    player.inviteCaseOpened = true;
+    player.inviteCasesAvailable = Math.max(0, available - 1);
+    player.inviteCasesOpened = (Number(player.inviteCasesOpened) || 0) + 1;
     saveData();
     await giveItemToPlayer(chatId, player, picked, "🎁 Кейс за приглашение друга");
     return;
@@ -4279,18 +4308,63 @@ bot.onText(/\/report/, (msg) => {
 });
 
 // /start
-bot.onText(/\/start/, (msg) => {
+bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
+  const playerKey = String(msg.from.id);
+  const existedBefore = Boolean(players[playerKey]);
   const player = ensurePlayer(msg.from);
-  if (!player) return bot.sendMessage(msg.chat.id, "Ошибка регистрации. Попробуйте снова.");
+  if (!player) {
+    await bot.sendMessage(msg.chat.id, "Ошибка регистрации. Попробуйте снова.").catch(() => {});
+    return;
+  }
+
+  let referralUpdated = false;
+  const payload = match && match[1] ? match[1].trim() : '';
+  const referrerId = !existedBefore ? parseReferralPayload(payload) : null;
+  if (referrerId && referrerId !== player.id) {
+    const inviter = players[String(referrerId)];
+    if (inviter) {
+      let inviteeIds = [];
+      if (Array.isArray(inviter.invitedUserIds)) {
+        inviteeIds = inviter.invitedUserIds
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0);
+      }
+      if (!inviteeIds.includes(player.id)) {
+        inviteeIds.push(player.id);
+        inviter.invitedUserIds = inviteeIds;
+        const currentAvailable = Number(inviter.inviteCasesAvailable) || 0;
+        inviter.inviteCasesAvailable = currentAvailable + 1;
+        if (typeof inviter.inviteCasesOpened !== 'number' || !Number.isFinite(inviter.inviteCasesOpened)) {
+          inviter.inviteCasesOpened = 0;
+        }
+        referralUpdated = true;
+        bot
+          .sendMessage(
+            referrerId,
+            `@${player.username} впервые запустил бота по твоей ссылке! Кейс уже ждёт тебя в разделе «Притащить тело».`
+          )
+          .catch(() => {});
+      }
+    }
+  }
+
+  if (referralUpdated) {
+    await saveData();
+  }
+
   applyArmorHelmetBonuses(player);
   const inv = player.inventory;
   const armorLine = inv.armor ? `${inv.armor.name} (+${inv.armor.hp} HP)` : "—";
   const weaponLine = inv.weapon ? `${inv.weapon.name} (+${inv.weapon.dmg} dmg)` : "—";
   const helmetLine = inv.helmet ? `${inv.helmet.name} (блок ${inv.helmet.block}%)` : "—";
-  const mutLine = inv.mutation ? `${inv.mutation.name} (crit ${Math.round((inv.mutation.crit||0)*100)}%)` : "—";
-  bot.sendMessage(msg.chat.id,
-    `Привет, @${player.username}!\n❤️ HP: ${player.hp}/${player.maxHp}\n🛡 Броня: ${armorLine}\n🔫 Оружие: ${weaponLine}\n🪖 Шлем: ${helmetLine}\n🧬 Мутация: ${mutLine}`,
-    { reply_markup: mainMenuKeyboard() });
+  const mutLine = inv.mutation ? `${inv.mutation.name} (crit ${Math.round((inv.mutation.crit || 0) * 100)}%)` : "—";
+  await bot
+    .sendMessage(
+      msg.chat.id,
+      `Привет, @${player.username}!\n❤️ HP: ${player.hp}/${player.maxHp}\n🛡 Броня: ${armorLine}\n🔫 Оружие: ${weaponLine}\n🪖 Шлем: ${helmetLine}\n🧬 Мутация: ${mutLine}`,
+      { reply_markup: mainMenuKeyboard() }
+    )
+    .catch(() => {});
 });
 
 bot.on("pre_checkout_query", async (q) => {
