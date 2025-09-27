@@ -1283,6 +1283,7 @@ function buildClanTopText(player) {
 // --- Config constants ---
 const PVP_REQUEST_TTL = 60 * 1000;
 const PVP_POINT = 300;
+const RANDOM_PVP_SIGN_CHANCE = 0.5;
 const RANKED_PVP_RATING_REWARD = 35;
 const CLAN_BATTLE_POINT = 500;
 const CLAN_BATTLE_MIN_PER_CLAN = 2;
@@ -1901,6 +1902,13 @@ function pickRandomItem(items) {
   return { ...rest };
 }
 
+function pickRandomSign(items) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const normalized = items.map(({ chance, ...rest }) => ({ ...rest }));
+  const randomIndex = Math.floor(Math.random() * normalized.length);
+  return { ...normalized[randomIndex] };
+}
+
 function pickRankedItem(items, stage) {
   if (!Array.isArray(items) || items.length === 0) return null;
   const normalized = items.map(({ chance, ...rest }) => ({ ...rest }));
@@ -1920,6 +1928,22 @@ function pickRankedItem(items, stage) {
   return { ...pool[Math.floor(Math.random() * pool.length)] };
 }
 
+function pickRankedSign(items, stage) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  if (stage <= 1) return null;
+
+  const normalized = items.map(({ chance, ...rest }) => ({ ...rest }));
+  const maxIndex = normalized.length - 1;
+  if (maxIndex < 0) return null;
+
+  const targetIndex = Math.min(maxIndex, stage - 1);
+  const start = Math.max(0, targetIndex - 1);
+  const end = Math.min(maxIndex, targetIndex + 1);
+  const pool = normalized.slice(start, end + 1);
+  if (pool.length === 0) return null;
+  return { ...pool[Math.floor(Math.random() * pool.length)] };
+}
+
 function generateRandomOpponentPlayer() {
   const randomId = Math.floor(Math.random() * 9_000_000) + 1_000_000;
   const username = `id${randomId}`;
@@ -1931,6 +1955,12 @@ function generateRandomOpponentPlayer() {
     mutation: pickRandomItem(mutationItems),
     extra: pickRandomItem(extraItems)
   };
+
+  if (Math.random() < RANDOM_PVP_SIGN_CHANCE) {
+    inventory.sign = pickRandomSign(signItems);
+  } else {
+    inventory.sign = null;
+  }
 
   const opponent = {
     id: 7_000_000_000 + randomId,
@@ -1972,7 +2002,7 @@ function generateRankedOpponentPlayer(player) {
     weapon: pickRankedItem(weaponItems, stage),
     mutation: pickRankedItem(mutationItems, stage),
     extra: pickRankedItem(extraItems, stage),
-    sign: pickRankedItem(signItems, stage)
+    sign: pickRankedSign(signItems, stage)
   };
 
   const opponent = {
