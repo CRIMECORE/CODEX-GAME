@@ -481,7 +481,7 @@ function buildPlayerFromRow(row) {
   return player;
 }
 
-const CLAN_KNOWN_KEYS = new Set(['id', 'name', 'points', 'members']);
+const CLAN_KNOWN_KEYS = new Set(['id', 'name', 'points', 'members', 'leaderId']);
 
 function extractClanRow(key, clan) {
   if (!clan || typeof clan !== 'object') return null;
@@ -936,6 +936,17 @@ function lootMenuKeyboard() {
   };
 }
 
+function clansMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "Создать / принять клан", callback_data: "clans_create_join" }],
+      [{ text: "Клановая битва", callback_data: "clans_battle_info" }],
+      [{ text: "Захват чата", callback_data: "clans_assault_info" }],
+      [{ text: "⬅️ Назад", callback_data: "play" }]
+    ]
+  };
+}
+
 async function startBot() {
     if (typeof bot !== 'undefined' && bot) {
         bot.removeAllListeners();
@@ -1098,6 +1109,19 @@ function cleanDatabase() {
     p.huntCooldownWarned ??= false;
     p.currentDanger ??= null;
     p.currentDangerMsgId ??= null;
+  }
+
+  for (const [cid, clan] of Object.entries(clans)) {
+    if (!clan || typeof clan !== 'object') {
+      delete clans[cid];
+      continue;
+    }
+    clan.id ??= Number(cid);
+    clan.name ??= `Клан ${cid}`;
+    if (!Array.isArray(clan.members)) clan.members = [];
+    clan.members = clan.members.filter((id) => id != null);
+    clan.points = Number.isFinite(Number(clan.points)) ? Number(clan.points) : 0;
+    ensureClanHasLeader(clan);
   }
   saveData();
 }
@@ -1961,17 +1985,25 @@ function generateRankedOpponentPlayer(player) {
 }
 
 async function editOrSend(chatId, messageId, text, options = {}) {
+  const { reply_markup } = options;
+  const parseMode = Object.prototype.hasOwnProperty.call(options, 'parse_mode') ? options.parse_mode : 'Markdown';
+  const messageOptions = {};
+  if (reply_markup) messageOptions.reply_markup = reply_markup;
+  if (parseMode) messageOptions.parse_mode = parseMode;
+
   try {
     if (messageId) {
-      await bot.editMessageText(text, { chat_id: chatId, message_id: messageId, reply_markup: options.reply_markup, parse_mode: "Markdown" });
+      const editParams = { chat_id: chatId, message_id: messageId };
+      if (reply_markup) editParams.reply_markup = reply_markup;
+      if (parseMode) editParams.parse_mode = parseMode;
+      await bot.editMessageText(text, editParams);
       return;
     } else {
-      await bot.sendMessage(chatId, text, { reply_markup: options.reply_markup, parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, text, messageOptions);
       return;
     }
   } catch (e) {
-    // fallback send
-    await bot.sendMessage(chatId, text, { reply_markup: options.reply_markup, parse_mode: "Markdown" });
+    await bot.sendMessage(chatId, text, messageOptions);
     return;
   }
 }
@@ -2253,11 +2285,17 @@ let clanBattleCountdownMsg = null;
 let pendingCountdownForClans = null; // [clanAId, clanBId]
 
 // helper: ensure clan exists
-function ensureClan(name) {
+function ensureClan(name, leaderId = null) {
   const ids = Object.keys(clans).map(n => Number(n));
   const nextId = ids.length === 0 ? 1 : (Math.max(...ids) + 1);
   const id = nextId;
-  clans[String(id)] = { id, name, points: 0, members: [] };
+  clans[String(id)] = {
+    id,
+    name,
+    points: 0,
+    members: [],
+    leaderId: leaderId != null ? Number(leaderId) : null
+  };
   saveData();
   return clans[String(id)];
 }
@@ -2291,6 +2329,280 @@ function removeClanQueueEntry(clanId, playerId) {
 
 function countEligibleClansWithMin(minCount) {
   return Object.entries(clanBattleQueue).filter(([cid, arr]) => Array.isArray(arr) && arr.length >= minCount).map(([cid]) => cid);
+}
+
+// ---- Clan leadership helpers ----
+function ensureClanHasLeader(clan) {
+  if (!clan || typeof clan !== 'object') return null;
+  const members = Array.isArray(clan.members) ? clan.members.filter((id) => id != null) : [];
+  if (clan.leaderId != null && members.some((id) => Number(id) === Number(clan.leaderId))) {
+    clan.leaderId = Number(clan.leaderId);
+    return clan.leaderId;
+  }
+  const nextLeader = members.length > 0 ? Number(members[0]) : null;
+  clan.leaderId = nextLeader;
+  return clan.leaderId;
+}
+
+// ---- Clan assault state ----
+const chatAssaults = Object.create(null);
+let assaultExpeditionSeq = 1;
+const ASSAULT_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const ASSAULT_EXPEDITION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const ASSAULT_ATTACK_REWARD_POINTS = 150;
+const ASSAULT_POSITIVE_REWARD_POINTS = 300;
+const ASSAULT_NEUTRAL_REWARD_POINTS = 100;
+const ASSAULT_NEGATIVE_REWARD_POINTS = 30;
+
+const ASSAULT_POSITIVE_OUTCOMES = [
+  'В полузаброшенной подворотне ты заметил железную дверь, ведущую в склад. Внутри пахло ржавчиной и старыми медикаментами. Среди ящиков лежали полезные вещи, которые корпорация, похоже, забыла. Никто не помешал тебе забрать их, и ты вернулся с приличной добычей.',
+  'Ты проник в разрушенный офисный центр, где когда-то работали учёные корпорации. Кабинеты были завалены бумагами и приборами. Среди мусора оказался ящик с деталями и инструментами. Никаких подопытных поблизости, всё прошло тихо — удачная вылазка.',
+  'В переулке ты столкнулся с девушкой-подопытной. Её тело было покрыто шрамами, но она не проявляла агрессии — лишь смотрела сквозь тебя пустым взглядом. Пока она стояла неподвижно, ты заметил тайник рядом и забрал всё, что мог. Девушка так и осталась недвижимой.',
+  'Ты нашёл остатки старой мастерской, где ещё работали генераторы. В углу валялись брошенные ящики с электроникой. Никто не мешал — забрал их и ушёл, ощущая редкое спокойствие на этих улицах.',
+  'В тёмном дворе ты услышал тихий женский голос. Оказалось, что это девушка-подопытная, изуродованная корпорацией. Она лишь улыбнулась тебе, не делая попыток приблизиться. Ты двинулся дальше и наткнулся на оставленный кем-то схрон.'
+];
+
+const ASSAULT_NEUTRAL_OUTCOMES = [
+  'В тоннеле ты нашёл старую лабораторную палету с контейнерами. Но стоило коснуться, как из соседней комнаты вышла подопытная. Её лицо было скрыто металлической маской. Она не напала, но и оставаться рядом было рискованно. Удалось прихватить немного ценностей и уйти.',
+  'Ты вошёл в здание общежития. На стенах — следы борьбы, обрывки одежды и инструменты корпорации. В одной из комнат сидела девушка с изменённым телом: её руки были металлическими протезами. Она смотрела в пол, и ты тихо прошёл мимо. Взял кое-что по пути, но рисковать больше не стал.',
+  'В переулке ты нашёл обгоревший автомобиль. Внутри были сумки с вещами, но внезапный скрежет заставил тебя бросить часть находок. На этот раз удалось уйти живым, но не всё удалось сохранить.',
+  'Ты пробрался в склад корпорации, где хранили оборудование. Всё казалось пустым, пока ты не услышал звук шагов. Кто-то или что-то следило за тобой. Ты торопливо собрал немного припасов и покинул место, пока не стало хуже.',
+  'На улице раздался крик, и ты замер. Из тени вышла подопытная девушка с изломанными движениями. Она медленно приближалась, но, к счастью, не успела догнать. Пришлось бросить часть находок, спасая себя.'
+];
+
+const ASSAULT_NEGATIVE_OUTCOMES = [
+  'В старом ангаре пахло химикатами. Ты заметил движение — из темноты вышла девушка-подопытная, у которой кожа была словно пластик. Её крик оглушил тебя, и в панике ты бросил всю добычу, спасая жизнь.',
+  'Ты зашёл в подземный коридор, где мерцал аварийный свет. Вдруг оттуда выползла подопытная с удлинёнными конечностями. Она кинулась прямо на тебя, и пришлось вырваться, сбросив всё, что нашёл.',
+  'На обочине дороги стоял автобус с выбитыми окнами. Ты зашёл внутрь и сразу пожалел — там были следы экспериментов. Одна из девушек, оставленных корпорацией, сидела в кресле, её глаза светились в темноте. Она двинулась за тобой, и пришлось бежать ни с чем.',
+  'Ты наткнулся на лестницу, ведущую вниз. В подвале пахло кровью. Там сидели несколько подопытных женщин, и как только они заметили тебя, начали кричать в унисон. Стены дрожали от звука, и ты бросил всё, лишь бы вырваться наружу.',
+  'На обратном пути тебя остановила фигура девушки с бинтами на лице. Её дыхание было неровным, она шагнула к тебе, и вдруг из-за спины выползли другие подопытные. Они окружили тебя. Спасся чудом, но всё, что ты нёс, осталось у них.'
+];
+
+function formatPlayerNameNoMention(player) {
+  if (!player) return 'Неизвестный сталкер';
+  const base = player.username || player.name || (player.id != null ? `ID ${player.id}` : 'Неизвестный сталкер');
+  return String(base).replace(/^@+/, '');
+}
+
+function pickRandom(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  const index = Math.floor(Math.random() * arr.length);
+  return arr[index];
+}
+
+function getChatAssaultState(chatId) {
+  return chatAssaults[String(chatId)] || null;
+}
+
+function scheduleNextAssaultExpedition(state, delay = ASSAULT_INTERVAL_MS) {
+  if (!state || chatAssaults[String(state.chatId)] !== state) return;
+  if (state.nextExpeditionTimer) clearTimeout(state.nextExpeditionTimer);
+  state.nextExpeditionTimer = setTimeout(() => {
+    state.nextExpeditionTimer = null;
+    beginAssaultExpedition(state).catch((err) => console.error('assault expedition error:', err));
+  }, delay);
+}
+
+async function beginAssaultExpedition(state) {
+  if (!state || chatAssaults[String(state.chatId)] !== state) return;
+  if (state.pendingExpedition) return;
+
+  const clan = clans[String(state.clanId)];
+  if (!clan) {
+    await bot.sendMessage(state.chatId, 'База расформирована: клан больше не существует.').catch(() => {});
+    await stopChatAssault(state.chatId);
+    return;
+  }
+
+  const members = Array.isArray(clan.members)
+    ? clan.members.filter((id) => players[String(id)])
+    : [];
+
+  if (members.length === 0) {
+    await bot
+      .sendMessage(state.chatId, `База клана "${clan.name}" свернута: в клане не осталось активных участников.`)
+      .catch(() => {});
+    await stopChatAssault(state.chatId);
+    return;
+  }
+
+  if (!Number.isFinite(state.nextMemberIndex)) state.nextMemberIndex = 0;
+  const memberId = members[state.nextMemberIndex % members.length];
+  state.nextMemberIndex = (state.nextMemberIndex + 1) % members.length;
+  const member = players[String(memberId)];
+  const displayName = formatPlayerNameNoMention(member);
+  const expeditionId = `${Date.now()}_${assaultExpeditionSeq++}`;
+  const keyboard = {
+    inline_keyboard: [[{ text: '⚔️ Атаковать', callback_data: `assault_attack:${state.chatId}:${expeditionId}` }]]
+  };
+
+  try {
+    const sent = await bot.sendMessage(state.chatId, `${displayName} отправился на разведку...`, {
+      reply_markup: keyboard
+    });
+    const timer = setTimeout(() => {
+      resolveAssaultExpeditionAutomatic(state.chatId, expeditionId).catch((err) =>
+        console.error('assault auto error:', err)
+      );
+    }, ASSAULT_EXPEDITION_TIMEOUT_MS);
+    state.pendingExpedition = {
+      id: expeditionId,
+      memberId,
+      messageId: sent.message_id,
+      startedAt: Date.now(),
+      timer,
+      attackedBy: null
+    };
+  } catch (err) {
+    console.error('failed to start assault expedition:', err);
+    await stopChatAssault(state.chatId);
+  }
+}
+
+async function resolveAssaultExpeditionAutomatic(chatId, expeditionId) {
+  const state = getChatAssaultState(chatId);
+  if (!state || !state.pendingExpedition || state.pendingExpedition.id !== expeditionId) return;
+  await finalizeAssaultExpedition(state, { type: 'auto' });
+}
+
+async function finalizeAssaultExpedition(state, outcome) {
+  if (!state || chatAssaults[String(state.chatId)] !== state) return;
+  const expedition = state.pendingExpedition;
+  if (!expedition) return;
+
+  if (expedition.timer) clearTimeout(expedition.timer);
+  state.pendingExpedition = null;
+
+  if (expedition.messageId) {
+    await bot
+      .editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: state.chatId, message_id: expedition.messageId })
+      .catch(() => {});
+  }
+
+  const clan = clans[String(state.clanId)];
+  if (!clan) {
+    await stopChatAssault(state.chatId);
+    return;
+  }
+
+  if (outcome.type === 'attack') {
+    const defender = outcome.defender || players[String(expedition.memberId)];
+    const defenderName = formatPlayerNameNoMention(defender);
+    const attacker = outcome.attacker;
+    const attackerName = formatPlayerNameNoMention(attacker);
+    const attackerClan = outcome.attackerClan;
+    const attackerWins = Boolean(outcome.attackerWins);
+
+    if (attackerWins && attackerClan) {
+      attackerClan.points = Number(attackerClan.points || 0) + ASSAULT_ATTACK_REWARD_POINTS;
+      saveData();
+      await bot
+        .sendMessage(
+          state.chatId,
+          `⚔️ ${attackerName} атаковал ${defenderName} и победил! Клан "${attackerClan.name}" получает ${ASSAULT_ATTACK_REWARD_POINTS} очков.`
+        )
+        .catch(() => {});
+    } else {
+      clan.points = Number(clan.points || 0) + ASSAULT_ATTACK_REWARD_POINTS;
+      saveData();
+      await bot
+        .sendMessage(
+          state.chatId,
+          `🛡 ${defenderName} отбился от ${attackerName}! Клан "${clan.name}" получает ${ASSAULT_ATTACK_REWARD_POINTS} очков.`
+        )
+        .catch(() => {});
+    }
+  } else {
+    const member = players[String(expedition.memberId)];
+    const memberName = formatPlayerNameNoMention(member);
+    const roll = Math.random();
+    let description = '';
+    let points = 0;
+
+    if (roll < 0.34) {
+      description = pickRandom(ASSAULT_POSITIVE_OUTCOMES) || '';
+      points = ASSAULT_POSITIVE_REWARD_POINTS;
+    } else if (roll < 0.74) {
+      description = pickRandom(ASSAULT_NEUTRAL_OUTCOMES) || '';
+      points = ASSAULT_NEUTRAL_REWARD_POINTS;
+    } else {
+      description = pickRandom(ASSAULT_NEGATIVE_OUTCOMES) || '';
+      points = ASSAULT_NEGATIVE_REWARD_POINTS;
+    }
+
+    clan.points = Number(clan.points || 0) + points;
+    saveData();
+    const outcomeText = `🔎 ${memberName} вернулся с разведки.\n\n${description}\n\nКлан "${clan.name}" получает ${points} очков.`;
+    await bot.sendMessage(state.chatId, outcomeText).catch(() => {});
+  }
+
+  if (chatAssaults[String(state.chatId)] === state) {
+    scheduleNextAssaultExpedition(state);
+  }
+}
+
+async function handleAssaultAttack(chatId, expeditionId, attackerPlayer) {
+  const state = getChatAssaultState(chatId);
+  if (!state || !state.pendingExpedition || state.pendingExpedition.id !== expeditionId) {
+    return { status: 'expired' };
+  }
+
+  if (state.pendingExpedition.attackedBy && state.pendingExpedition.attackedBy !== attackerPlayer.id) {
+    return { status: 'already' };
+  }
+
+  const clan = clans[String(state.clanId)];
+  if (!clan) {
+    await stopChatAssault(chatId);
+    return { status: 'no_clan' };
+  }
+
+  const attackerClan = attackerPlayer.clanId ? clans[String(attackerPlayer.clanId)] : null;
+  if (!attackerClan) {
+    return { status: 'no_attacker_clan' };
+  }
+
+  if (Number(attackerClan.id) === Number(clan.id)) {
+    return { status: 'same_clan' };
+  }
+
+  state.pendingExpedition.attackedBy = attackerPlayer.id;
+  const defender = players[String(state.pendingExpedition.memberId)];
+  const attackerWins = Math.random() < 0.5;
+  await finalizeAssaultExpedition(state, {
+    type: 'attack',
+    attacker: attackerPlayer,
+    attackerClan,
+    attackerWins,
+    defender
+  });
+  return { status: 'ok', attackerWins };
+}
+
+async function stopChatAssault(chatId) {
+  const key = String(chatId);
+  const state = chatAssaults[key];
+  if (!state) return null;
+
+  if (state.nextExpeditionTimer) {
+    clearTimeout(state.nextExpeditionTimer);
+    state.nextExpeditionTimer = null;
+  }
+
+  if (state.pendingExpedition) {
+    if (state.pendingExpedition.timer) clearTimeout(state.pendingExpedition.timer);
+    if (state.pendingExpedition.messageId) {
+      await bot
+        .editMessageReplyMarkup({ inline_keyboard: [] }, {
+          chat_id: state.chatId,
+          message_id: state.pendingExpedition.messageId
+        })
+        .catch(() => {});
+    }
+  }
+
+  delete chatAssaults[key];
+  return state;
 }
 
 // schedule countdown if conditions met (>=2 clans with >=2 players). starts 20s countdown once for the two clans chosen.
@@ -2482,6 +2794,7 @@ bot.onText(/\/acceptclan(?:@\w+)?(?:\s+(.+))?/i, (msg, match) => {
   if (!Array.isArray(clan.members)) clan.members = [];
   // prevent double join
   if (!clan.members.includes(player.id)) clan.members.push(player.id);
+  ensureClanHasLeader(clan);
   player.clanId = clan.id;
   delete clanInvites[myKey];
   saveData();
@@ -2665,8 +2978,12 @@ bot.onText(/\/clan_create (.+)/, (msg, match) => {
   // check name uniqueness
   const exists = Object.values(clans).find(c => String(c.name).toLowerCase() === name.toLowerCase());
   if (exists) return bot.sendMessage(chatId, "Клан с таким названием уже существует. Выберите другое имя.");
-  const clan = ensureClan(name);
-  clan.members.push(player.id);
+  const clan = ensureClan(name, player.id);
+  if (!Array.isArray(clan.members)) clan.members = [];
+  if (!clan.members.some((id) => Number(id) === Number(player.id))) {
+    clan.members.push(player.id);
+  }
+  ensureClanHasLeader(clan);
   player.clanId = clan.id;
   saveData();
   bot.sendMessage(chatId, `✅ Клан "${escMd(clan.name)}" создан. Вы вошли в клан.`);
@@ -2685,6 +3002,10 @@ bot.onText(/\/clan_leave/, (msg) => {
     // if empty clan -> delete it
     if (clan.members.length === 0) {
       delete clans[cid];
+    } else {
+      if (Number(clan.leaderId) === Number(player.id)) {
+        ensureClanHasLeader(clan);
+      }
     }
   }
   player.clanId = null;
@@ -2728,6 +3049,117 @@ bot.onText(/\/clan_battle/, async (msg) => {
   tryStartClanBattleCountdown(chatId);
 });
 
+bot.onText(/\/kick(?:@\w+)?\s+(.+)/i, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const initiator = ensurePlayer(msg.from);
+  if (!initiator) return bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
+  if (!initiator.clanId) return bot.sendMessage(chatId, "Вы не состоите в клане.");
+  const clan = clans[String(initiator.clanId)];
+  if (!clan) return bot.sendMessage(chatId, "Ваш клан не найден.");
+  ensureClanHasLeader(clan);
+  if (Number(clan.leaderId) !== Number(initiator.id)) {
+    return bot.sendMessage(chatId, "Только лидер клана может исключать участников.");
+  }
+
+  const raw = match && match[1] ? String(match[1]).trim() : '';
+  if (!raw) return bot.sendMessage(chatId, "Использование: /kick @username или /kick id");
+
+  let targetPlayer = findPlayerByIdentifier(raw);
+  if (!targetPlayer && /^\d+$/.test(raw)) {
+    targetPlayer = players[String(raw)] || null;
+  }
+
+  if (!targetPlayer) return bot.sendMessage(chatId, "Игрок не найден. Укажите корректный @username или ID.");
+  if (String(targetPlayer.id) === String(initiator.id)) return bot.sendMessage(chatId, "Нельзя исключить себя.");
+  if (Number(targetPlayer.clanId) !== Number(clan.id)) {
+    return bot.sendMessage(chatId, "Этот игрок не состоит в вашем клане.");
+  }
+
+  clan.members = (clan.members || []).filter((id) => Number(id) !== Number(targetPlayer.id));
+  targetPlayer.clanId = null;
+  if (Number(clan.leaderId) === Number(targetPlayer.id)) {
+    ensureClanHasLeader(clan);
+  }
+  removeClanQueueEntry(clan.id, targetPlayer.id);
+  saveData();
+
+  const targetName = formatPlayerNameNoMention(targetPlayer);
+  await bot.sendMessage(chatId, `❌ ${targetName} исключён из клана "${clan.name}".`).catch(() => {});
+  try {
+    await bot.sendMessage(Number(targetPlayer.id), `ℹ️ Вас исключили из клана "${clan.name}".`);
+  } catch (err) {
+    console.error('failed to notify kicked player:', err.message || err);
+  }
+});
+
+bot.onText(/\/assault(?:@\w+)?/, async (msg) => {
+  const chatId = msg.chat.id;
+  const chatType = msg.chat && msg.chat.type ? msg.chat.type : 'private';
+  if (chatType === 'private') {
+    return bot.sendMessage(chatId, "Команда доступна только в групповых чатах.");
+  }
+
+  const player = ensurePlayer(msg.from);
+  if (!player) return bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
+  if (!player.clanId) return bot.sendMessage(chatId, "Вы должны состоять в клане, чтобы устанавливать базу.");
+
+  const clan = clans[String(player.clanId)];
+  if (!clan) return bot.sendMessage(chatId, "Ошибка: ваш клан не найден.");
+
+  const existing = getChatAssaultState(chatId);
+  if (existing) {
+    if (Number(existing.clanId) === Number(clan.id)) {
+      return bot.sendMessage(chatId, "Ваш клан уже контролирует этот чат.");
+    }
+    const ownerClan = clans[String(existing.clanId)];
+    const ownerName = ownerClan ? ownerClan.name : 'другой клан';
+    return bot.sendMessage(chatId, `База уже установлена кланом "${ownerName}".`);
+  }
+
+  let memberCount = null;
+  try {
+    memberCount = await bot.getChatMemberCount(chatId);
+  } catch (err) {
+    console.error('getChatMemberCount failed:', err.message || err);
+  }
+  if (Number.isFinite(memberCount) && memberCount < 4) {
+    return bot.sendMessage(chatId, "Для захвата чата требуется минимум 4 участника.");
+  }
+
+  const state = {
+    chatId,
+    clanId: clan.id,
+    initiatedBy: player.id,
+    nextMemberIndex: 0,
+    pendingExpedition: null,
+    nextExpeditionTimer: null
+  };
+  chatAssaults[String(chatId)] = state;
+
+  const introText = `🏴 Клан "${clan.name}" установил базу в этом чате. Теперь разведчики смогут исследовать территорию и приносить очки клану.\nКаждый участник клана будет автоматически отправляться на разведку каждые 30 минут.\nДругие жители чата могут атаковать разведчиков, чтобы перехватить добычу.\nЧтобы демонтировать базу, отправьте /unassault.`;
+  await bot.sendMessage(chatId, introText).catch(() => {});
+  ensureClanHasLeader(clan);
+  await beginAssaultExpedition(state);
+});
+
+bot.onText(/\/unassault(?:@\w+)?/, async (msg) => {
+  const chatId = msg.chat.id;
+  const player = ensurePlayer(msg.from);
+  if (!player) return bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
+  if (!player.clanId) return bot.sendMessage(chatId, "Вы не состоите в клане.");
+
+  const state = getChatAssaultState(chatId);
+  if (!state) return bot.sendMessage(chatId, "В этом чате нет активной базы клана.");
+  if (Number(state.clanId) !== Number(player.clanId)) {
+    return bot.sendMessage(chatId, "Только клан, который установил базу, может её убрать.");
+  }
+
+  await stopChatAssault(chatId);
+  const clan = clans[String(player.clanId)];
+  const clanName = clan ? clan.name : 'клан';
+  await bot.sendMessage(chatId, `🏳️ База клана "${clanName}" демонтирована.`).catch(() => {});
+});
+
 // ---- Callback handlers (PvE, inventory, leaderboard and pvp_request button, clans menu) ----
 
   const __af = Object.create(null);
@@ -2751,9 +3183,13 @@ bot.on("callback_query", async (q) => {
       "pvp_find",
       "pvp_ranked",
       "pvp_leaderboard",
-      "clans_menu"
+      "clans_menu",
+      "clans_create_join",
+      "clans_battle_info",
+      "clans_assault_info"
     ]);
-    if (isGroupType && !allowedInGroup.has(dataCb)) {
+    const isAssaultAttackAction = typeof dataCb === 'string' && dataCb.startsWith('assault_attack:');
+    if (isGroupType && !allowedInGroup.has(dataCb) && !isAssaultAttackAction) {
       const chatIdCurrent = chat.id;
       const warnText = "Эти функции доступны только в личном сообщении бота, нажми на мою аватарку и играй!";
       await bot.answerCallbackQuery(q.id, { show_alert: true, text: warnText }).catch(()=>{});
@@ -2859,17 +3295,93 @@ if (dataCb === "pvp_leaderboard") {
 }
 
 if (dataCb === "clans_menu") {
-  // Показываем краткое меню по кланам (аналог текста + подсказки по /clan_* командам)
-  const text = `🏰 Кланы — команды:
-- /clan_create <имя> — создать клан
-- /clan_leave — выйти из клана
-- /inviteclan @ник|id — пригласить в клан
-- /acceptclan — принять приглашение
-- /clan_top — топ кланов
-- /acceptbattle — принять заявку на клановую битву
-- /clan_battle — подать заявку на клановую битву
-Нажмите команду в чате или используйте текстовые команды.`;
-  await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+  const text = "🏰 Кланы\n\nВыбери раздел, чтобы узнать подробности.";
+  await editOrSend(chatId, messageId, text, { reply_markup: clansMenuKeyboard(), parse_mode: null });
+  return;
+}
+
+if (dataCb === "clans_create_join") {
+  const text = [
+    "🏗 Управление кланом",
+    "",
+    "Основные команды:",
+    "• `/clan_create <имя>` — создать новый клан.",
+    "• `/inviteclan @ник|id` — пригласить игрока.",
+    "• `/acceptclan` — принять приглашение в клан.",
+    "• `/clan_leave` — покинуть текущий клан.",
+    "• `/kick @ник|id` — исключить участника (доступно лидеру).",
+    "",
+    "Отправь нужную команду в чат, чтобы выполнить действие."
+  ].join("\n");
+  await editOrSend(chatId, messageId, text, {
+    reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "clans_menu" }]] }
+  });
+  return;
+}
+
+if (dataCb === "clans_battle_info") {
+  const text = [
+    "⚔️ Клановые битвы",
+    "",
+    "Команды:",
+    "• `/clan_battle` — подать заявку на битву.",
+    "• `/acceptbattle` — принять вызов на сражение.",
+    "",
+    "Как это работает:",
+    "Кланы отправляют заявки, после чего система подбирает противника. Каждой стороне нужно минимум два готовых бойца. После принятия вызова начинается пошаговая схватка, а победивший клан получает очки рейтинга.",
+    "Следите за списком заявок и своевременно принимайте подходящие бои, чтобы не упустить шанс заработать очки!"
+  ].join("\n");
+  await editOrSend(chatId, messageId, text, {
+    reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "clans_menu" }]] }
+  });
+  return;
+}
+
+if (dataCb === "clans_assault_info") {
+  const text = [
+    "🚩 Захват чата",
+    "",
+    "• Напишите `/assault` в групповом чате, где находится бот, чтобы установить базу своего клана.",
+    "• Каждый участник клана будет автоматически отправляться на разведку раз в 30 минут и приносить очки.",
+    "• Под сообщением разведчика появится кнопка «Атаковать». Любой участник чата может нажать её, чтобы попытаться сорвать добычу и получить очки для своего клана.",
+    "• Если за 5 минут нападения не было, бот определяет исход экспедиции и начисляет 300, 100 или 30 очков в зависимости от успеха.",
+    "• Команда `/unassault` демонтирует базу и останавливает разведки."
+  ].join("\n");
+  await editOrSend(chatId, messageId, text, {
+    reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "clans_menu" }]] }
+  });
+  return;
+}
+
+if (typeof dataCb === "string" && dataCb.startsWith("assault_attack:")) {
+  const [, chatIdStr, expeditionId] = dataCb.split(":");
+  const targetChatId = Number(chatIdStr);
+  const attacker = ensurePlayer(user);
+  if (!attacker) {
+    return;
+  }
+
+  const result = await handleAssaultAttack(targetChatId, expeditionId, attacker);
+  if (result.status === "no_attacker_clan") {
+    await bot.sendMessage(chatId, "Для нападения нужно состоять в клане.").catch(() => {});
+    return;
+  }
+  if (result.status === "same_clan") {
+    await bot.sendMessage(chatId, "Вы не можете атаковать разведчика собственного клана.").catch(() => {});
+    return;
+  }
+  if (result.status === "already") {
+    await bot.sendMessage(chatId, "Извините, игрок уже был атакован.").catch(() => {});
+    return;
+  }
+  if (result.status === "expired") {
+    await bot.sendMessage(chatId, "Экспедиция уже завершена.").catch(() => {});
+    return;
+  }
+  if (result.status === "no_clan") {
+    await bot.sendMessage(chatId, "База этого клана уже демонтирована.").catch(() => {});
+    return;
+  }
   return;
 }
 
@@ -3837,8 +4349,12 @@ bot.onText(/\/clancreate(?:\s+(.+))?/, (msg, match) => {
   if (player.clanId) return bot.sendMessage(chatId, "Вы уже в клане — сначала выйдите (/clan_leave).");
   const exists = Object.values(clans).find(c => String(c.name).toLowerCase() === name.toLowerCase());
   if (exists) return bot.sendMessage(chatId, "Клан с таким названием уже существует. Выберите другое имя.");
-  const clan = ensureClan(name);
-  clan.members.push(player.id);
+  const clan = ensureClan(name, player.id);
+  if (!Array.isArray(clan.members)) clan.members = [];
+  if (!clan.members.some((id) => Number(id) === Number(player.id))) {
+    clan.members.push(player.id);
+  }
+  ensureClanHasLeader(clan);
   player.clanId = clan.id;
   saveData();
   bot.sendMessage(chatId, `✅ Клан "${escMd(clan.name)}" создан. Вы вошли в клан.`);
@@ -3869,7 +4385,11 @@ bot.onText(/\/clanleave/, (msg) => {
   const clan = clans[cid];
   if (clan) {
     clan.members = (clan.members || []).filter(id => String(id) !== String(player.id));
-    if (clan.members.length === 0) delete clans[cid];
+    if (clan.members.length === 0) {
+      delete clans[cid];
+    } else if (Number(clan.leaderId) === Number(player.id)) {
+      ensureClanHasLeader(clan);
+    }
   }
   player.clanId = null;
   removeClanQueueEntry(cid, player.id);
@@ -4414,4 +4934,15 @@ if (process.env.NODE_ENV !== 'test') {
 process.on('SIGTERM', () => { saveData().finally(() => process.exit(0)); });
 process.on('SIGINT', () => { saveData().finally(() => process.exit(0)); });
 
-export { mainMenuKeyboard, lootMenuKeyboard, saveData, loadData, ensurePlayer, players, clans, clanBattles, clanInvites };
+export {
+  mainMenuKeyboard,
+  lootMenuKeyboard,
+  clansMenuKeyboard,
+  saveData,
+  loadData,
+  ensurePlayer,
+  players,
+  clans,
+  clanBattles,
+  clanInvites
+};

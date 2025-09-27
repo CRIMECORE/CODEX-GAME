@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 
 process.env.NODE_ENV = 'test';
-const { mainMenuKeyboard, lootMenuKeyboard } = await import('../index.js');
+const { mainMenuKeyboard, lootMenuKeyboard, clansMenuKeyboard } = await import('../index.js');
 
 test('main menu contains all expected buttons', () => {
   const keyboard = mainMenuKeyboard();
@@ -19,4 +19,13 @@ test('loot menu contains free gift and back buttons', () => {
   const keyboard = lootMenuKeyboard();
   const callbacks = keyboard.inline_keyboard.flat().map(btn => btn.callback_data);
   assert.deepStrictEqual(callbacks, ['free_gift', 'invite_friend', 'play']);
+});
+
+test('clan menu has expected sections', () => {
+  const keyboard = clansMenuKeyboard();
+  const callbacks = keyboard.inline_keyboard.flat().map(btn => btn.callback_data || null);
+  assert.ok(callbacks.includes('clans_create_join'));
+  assert.ok(callbacks.includes('clans_battle_info'));
+  assert.ok(callbacks.includes('clans_assault_info'));
+  assert.ok(callbacks.includes('play'));
 });
