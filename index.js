@@ -824,6 +824,31 @@ async function loadData() {
   }
 }
 
+const RANKED_PVP_RATING_REWARD = 35;
+
+function ensurePvpRatingFields(player) {
+  if (!player) return;
+  if (!Number.isFinite(player.pvpRating)) player.pvpRating = 0;
+  if (!Number.isFinite(player.pvpRatingBest)) player.pvpRatingBest = player.pvpRating;
+}
+
+function resetPvpRating(player) {
+  if (!player) return;
+  ensurePvpRatingFields(player);
+  player.pvpRating = 0;
+}
+
+function grantRankedPvpPoints(player, amount = RANKED_PVP_RATING_REWARD) {
+  if (!player) return { current: 0, best: 0 };
+  ensurePvpRatingFields(player);
+  const reward = Number.isFinite(amount) ? amount : RANKED_PVP_RATING_REWARD;
+  player.pvpRating += reward;
+  if (player.pvpRating > player.pvpRatingBest) {
+    player.pvpRatingBest = player.pvpRating;
+  }
+  return { current: player.pvpRating, best: player.pvpRatingBest };
+}
+
 function ensurePlayer(user) {
   if (!user || typeof user.id === 'undefined') return null;
   const key = String(user.id);
@@ -1198,29 +1223,6 @@ function resetSurvivalProgress(player) {
   }
 }
 
-function ensurePvpRatingFields(player) {
-  if (!player) return;
-  if (!Number.isFinite(player.pvpRating)) player.pvpRating = 0;
-  if (!Number.isFinite(player.pvpRatingBest)) player.pvpRatingBest = player.pvpRating;
-}
-
-function resetPvpRating(player) {
-  if (!player) return;
-  ensurePvpRatingFields(player);
-  player.pvpRating = 0;
-}
-
-function grantRankedPvpPoints(player, amount = RANKED_PVP_RATING_REWARD) {
-  if (!player) return { current: 0, best: 0 };
-  ensurePvpRatingFields(player);
-  const reward = Number.isFinite(amount) ? amount : RANKED_PVP_RATING_REWARD;
-  player.pvpRating += reward;
-  if (player.pvpRating > player.pvpRatingBest) {
-    player.pvpRatingBest = player.pvpRating;
-  }
-  return { current: player.pvpRating, best: player.pvpRatingBest };
-}
-
 function compareBySurvival(a, b) {
   const bestA = Number.isFinite(a?.bestSurvivalDays) ? a.bestSurvivalDays : 0;
   const bestB = Number.isFinite(b?.bestSurvivalDays) ? b.bestSurvivalDays : 0;
@@ -1312,7 +1314,6 @@ function buildClanTopText(player) {
 const PVP_REQUEST_TTL = 60 * 1000;
 const PVP_POINT = 300;
 const RANDOM_PVP_SIGN_CHANCE = 0.5;
-const RANKED_PVP_RATING_REWARD = 35;
 const CLAN_BATTLE_POINT = 500;
 const CLAN_BATTLE_MIN_PER_CLAN = 2;
 const CLAN_BATTLE_COUNTDOWN_MS = 20000; // 20 seconds
