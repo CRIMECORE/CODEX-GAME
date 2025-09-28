@@ -995,7 +995,7 @@ function clansMenuKeyboard() {
       [{ text: "Создать / принять клан", callback_data: "clans_create_join" }],
       [{ text: "Топ кланов", callback_data: "clans_top" }],
       [{ text: "Клановая битва", callback_data: "clans_battle_info" }],
-      [{ text: "Захват чата", callback_data: "clans_assault_info" }],
+      [{ text: "⚔️ Захват чата", callback_data: "clans_assault_info" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
