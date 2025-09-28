@@ -2423,6 +2423,24 @@ function ensureClanHasLeader(clan) {
 
 // ---- Clan assault state ----
 const chatAssaults = Object.create(null);
+
+function makeAssaultKey(chatId, clanId) {
+  return `${chatId}:${clanId}`;
+}
+
+function getActiveAssaultStatesForChat(chatId) {
+  const prefix = `${chatId}:`;
+  return Object.keys(chatAssaults)
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => chatAssaults[key])
+    .filter(Boolean);
+}
+
+function isAssaultStateActive(state) {
+  if (!state) return false;
+  return chatAssaults[makeAssaultKey(state.chatId, state.clanId)] === state;
+}
+
 let assaultExpeditionSeq = 1;
 const ASSAULT_INTERVAL_MS = 35 * 60 * 1000; // 35 minutes
 const ASSAULT_EXPEDITION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -2461,18 +2479,24 @@ function formatPlayerNameNoMention(player) {
   return String(base).replace(/^@+/, '');
 }
 
+function formatPlayerTag(player) {
+  if (!player) return 'Неизвестный сталкер';
+  return player.username ? `@${player.username}` : formatPlayerNameNoMention(player);
+}
+
 function pickRandom(arr) {
   if (!Array.isArray(arr) || arr.length === 0) return null;
   const index = Math.floor(Math.random() * arr.length);
   return arr[index];
 }
 
-function getChatAssaultState(chatId) {
-  return chatAssaults[String(chatId)] || null;
+function getChatAssaultState(chatId, clanId) {
+  if (clanId == null) return null;
+  return chatAssaults[makeAssaultKey(chatId, clanId)] || null;
 }
 
 function scheduleNextAssaultExpedition(state, delay = ASSAULT_INTERVAL_MS) {
-  if (!state || chatAssaults[String(state.chatId)] !== state) return;
+  if (!isAssaultStateActive(state)) return;
   if (state.nextExpeditionTimer) clearTimeout(state.nextExpeditionTimer);
   state.nextExpeditionTimer = setTimeout(() => {
     state.nextExpeditionTimer = null;
@@ -2481,13 +2505,13 @@ function scheduleNextAssaultExpedition(state, delay = ASSAULT_INTERVAL_MS) {
 }
 
 async function beginAssaultExpedition(state) {
-  if (!state || chatAssaults[String(state.chatId)] !== state) return;
+  if (!isAssaultStateActive(state)) return;
   if (state.pendingExpedition) return;
 
   const clan = clans[String(state.clanId)];
   if (!clan) {
     await bot.sendMessage(state.chatId, 'База расформирована: клан больше не существует.').catch(() => {});
-    await stopChatAssault(state.chatId);
+    await stopChatAssault(state.chatId, state.clanId);
     return;
   }
 
@@ -2499,7 +2523,7 @@ async function beginAssaultExpedition(state) {
     await bot
       .sendMessage(state.chatId, `База клана "${clan.name}" свернута: в клане не осталось активных участников.`)
       .catch(() => {});
-    await stopChatAssault(state.chatId);
+    await stopChatAssault(state.chatId, state.clanId);
     return;
   }
 
@@ -2512,7 +2536,7 @@ async function beginAssaultExpedition(state) {
   const displayName = formatPlayerNameNoMention(member);
   const expeditionId = `${Date.now()}_${assaultExpeditionSeq++}`;
   const keyboard = {
-    inline_keyboard: [[{ text: '⚔️ Атаковать', callback_data: `assault_attack:${state.chatId}:${expeditionId}` }]]
+    inline_keyboard: [[{ text: '⚔️ Атаковать', callback_data: `assault_attack:${state.chatId}:${state.clanId}:${expeditionId}` }]]
   };
 
   try {
@@ -2520,7 +2544,7 @@ async function beginAssaultExpedition(state) {
       reply_markup: keyboard
     });
     const timer = setTimeout(() => {
-      resolveAssaultExpeditionAutomatic(state.chatId, expeditionId).catch((err) =>
+      resolveAssaultExpeditionAutomatic(state.chatId, state.clanId, expeditionId).catch((err) =>
         console.error('assault auto error:', err)
       );
     }, ASSAULT_EXPEDITION_TIMEOUT_MS);
@@ -2534,18 +2558,18 @@ async function beginAssaultExpedition(state) {
     };
   } catch (err) {
     console.error('failed to start assault expedition:', err);
-    await stopChatAssault(state.chatId);
+    await stopChatAssault(state.chatId, state.clanId);
   }
 }
 
-async function resolveAssaultExpeditionAutomatic(chatId, expeditionId) {
-  const state = getChatAssaultState(chatId);
+async function resolveAssaultExpeditionAutomatic(chatId, clanId, expeditionId) {
+  const state = getChatAssaultState(chatId, clanId);
   if (!state || !state.pendingExpedition || state.pendingExpedition.id !== expeditionId) return;
   await finalizeAssaultExpedition(state, { type: 'auto' });
 }
 
 async function finalizeAssaultExpedition(state, outcome) {
-  if (!state || chatAssaults[String(state.chatId)] !== state) return;
+  if (!isAssaultStateActive(state)) return;
   const expedition = state.pendingExpedition;
   if (!expedition) return;
 
@@ -2560,7 +2584,7 @@ async function finalizeAssaultExpedition(state, outcome) {
 
   const clan = clans[String(state.clanId)];
   if (!clan) {
-    await stopChatAssault(state.chatId);
+    await stopChatAssault(state.chatId, state.clanId);
     return;
   }
 
@@ -2615,13 +2639,13 @@ async function finalizeAssaultExpedition(state, outcome) {
     await bot.sendMessage(state.chatId, outcomeText).catch(() => {});
   }
 
-  if (chatAssaults[String(state.chatId)] === state) {
+  if (isAssaultStateActive(state)) {
     scheduleNextAssaultExpedition(state);
   }
 }
 
-async function handleAssaultAttack(chatId, expeditionId, attackerPlayer) {
-  const state = getChatAssaultState(chatId);
+async function handleAssaultAttack(chatId, clanId, expeditionId, attackerPlayer) {
+  const state = getChatAssaultState(chatId, clanId);
   if (!state || !state.pendingExpedition || state.pendingExpedition.id !== expeditionId) {
     return { status: 'expired' };
   }
@@ -2632,7 +2656,7 @@ async function handleAssaultAttack(chatId, expeditionId, attackerPlayer) {
 
   const clan = clans[String(state.clanId)];
   if (!clan) {
-    await stopChatAssault(chatId);
+    await stopChatAssault(chatId, clanId);
     return { status: 'no_clan' };
   }
 
@@ -2645,21 +2669,181 @@ async function handleAssaultAttack(chatId, expeditionId, attackerPlayer) {
     return { status: 'same_clan' };
   }
 
-  state.pendingExpedition.attackedBy = attackerPlayer.id;
+  if (attackerPlayer.pvp) {
+    return { status: 'attacker_busy' };
+  }
+
   const defender = players[String(state.pendingExpedition.memberId)];
-  const attackerWins = Math.random() < 0.5;
-  await finalizeAssaultExpedition(state, {
-    type: 'attack',
-    attacker: attackerPlayer,
-    attackerClan,
-    attackerWins,
-    defender
+  if (defender && defender.pvp) {
+    return { status: 'defender_busy' };
+  }
+
+  if (state.pendingExpedition.timer) {
+    clearTimeout(state.pendingExpedition.timer);
+    state.pendingExpedition.timer = null;
+  }
+
+  state.pendingExpedition.attackedBy = attackerPlayer.id;
+  runAssaultSkirmish(state, attackerPlayer, attackerClan).catch((err) => {
+    console.error('assault skirmish start error:', err);
+    finalizeAssaultExpedition(state, {
+      type: 'attack',
+      attacker: attackerPlayer,
+      attackerClan,
+      attackerWins: false,
+      defender
+    }).catch((error) => console.error('assault skirmish fallback error:', error));
   });
-  return { status: 'ok', attackerWins };
+  return { status: 'started' };
 }
 
-async function stopChatAssault(chatId) {
-  const key = String(chatId);
+async function runAssaultSkirmish(state, attackerPlayer, attackerClan) {
+  if (!state || !isAssaultStateActive(state) || !state.pendingExpedition) {
+    return;
+  }
+
+  const expeditionId = state.pendingExpedition.id;
+  const defender = players[String(state.pendingExpedition.memberId)];
+  const chatId = state.chatId;
+  const attackerLabel = formatPlayerTag(attackerPlayer);
+  const defenderLabel = formatPlayerTag(defender);
+
+  if (!defender) {
+    await finalizeAssaultExpedition(state, {
+      type: 'attack',
+      attacker: attackerPlayer,
+      attackerClan,
+      attackerWins: true,
+      defender: null
+    });
+    return;
+  }
+
+  await bot.sendMessage(chatId, `⚔️ ${attackerLabel} напал на ${defenderLabel}! Бой начинается!`).catch(() => {});
+
+  if (!initPvpState(attackerPlayer, defender)) {
+    await finalizeAssaultExpedition(state, {
+      type: 'attack',
+      attacker: attackerPlayer,
+      attackerClan,
+      attackerWins: false,
+      defender
+    });
+    return;
+  }
+
+  let finished = false;
+  let turn = 'attacker';
+
+  const attackerState = attackerPlayer.pvp;
+  const defenderState = defender.pvp;
+
+  const cleanup = async (attackerWon, shouldFinalize = true) => {
+    if (finished) return;
+    finished = true;
+
+    resetPlayerSignFlags(attackerPlayer);
+    resetPlayerSignFlags(defender);
+    if (attackerPlayer.pvp) delete attackerPlayer.pvp;
+    if (defender.pvp) delete defender.pvp;
+    saveData();
+
+    if (shouldFinalize && isAssaultStateActive(state) && state.pendingExpedition && state.pendingExpedition.id === expeditionId) {
+      await finalizeAssaultExpedition(state, {
+        type: 'attack',
+        attacker: attackerPlayer,
+        attackerClan,
+        attackerWins: attackerWon,
+        defender
+      });
+    } else if (shouldFinalize && isAssaultStateActive(state) && !state.pendingExpedition) {
+      // already finalized elsewhere
+    } else if (!shouldFinalize) {
+      // nothing
+    }
+  };
+
+  const hpSummary = () => {
+    const attackerHp = attackerPlayer.pvp ? Math.max(0, attackerPlayer.pvp.myHp) : 0;
+    const defenderHp = defender.pvp ? Math.max(0, defender.pvp.myHp) : 0;
+    return `HP: ${formatPlayerTag(attackerPlayer)} ${attackerHp}/${attackerPlayer.maxHp} — ${formatPlayerTag(defender)} ${defenderHp}/${defender.maxHp}`;
+  };
+
+  const processRound = async () => {
+    if (finished) return;
+    if (!isAssaultStateActive(state)) {
+      await cleanup(false, false);
+      return;
+    }
+    if (!state.pendingExpedition || state.pendingExpedition.id !== expeditionId) {
+      await cleanup(false, false);
+      return;
+    }
+    if (!attackerPlayer.pvp || !defender.pvp) {
+      await cleanup(false);
+      return;
+    }
+
+    const actor = turn === 'attacker' ? attackerPlayer : defender;
+    const target = turn === 'attacker' ? defender : attackerPlayer;
+    const actorState = turn === 'attacker' ? attackerState : defenderState;
+    const targetState = turn === 'attacker' ? defenderState : attackerState;
+
+    if (!actorState || !targetState) {
+      await cleanup(false);
+      return;
+    }
+
+    if (actorState.myHp <= 0) {
+      await bot.sendMessage(chatId, `💀 ${formatPlayerTag(actor)} пал в бою (от ${formatPlayerTag(target)}).`).catch(() => {});
+      await cleanup(turn !== 'attacker');
+      return;
+    }
+
+    if (targetState.myHp <= 0) {
+      await bot.sendMessage(chatId, `💀 ${formatPlayerTag(target)} пал в бою (от ${formatPlayerTag(actor)}).`).catch(() => {});
+      await cleanup(turn === 'attacker');
+      return;
+    }
+
+    if (actorState.myStun && actorState.myStun > 0) {
+      actorState.myStun--;
+      await bot
+        .sendMessage(chatId, `⏱️ ${formatPlayerTag(actor)} оглушён и пропускает ход (${actorState.myStun} осталось).\n${hpSummary()}`)
+        .catch(() => {});
+    } else {
+      const events = computeAttackForPvp(actor, target, actorState, targetState);
+      await bot
+        .sendMessage(chatId, `${events.join('\n')}\n\n${hpSummary()}`)
+        .catch(() => {});
+    }
+
+    if (targetState.myHp <= 0) {
+      await bot.sendMessage(chatId, `💀 ${formatPlayerTag(target)} пал в бою (от ${formatPlayerTag(actor)}).`).catch(() => {});
+      await cleanup(turn === 'attacker');
+      return;
+    }
+
+    turn = turn === 'attacker' ? 'defender' : 'attacker';
+    saveData();
+    setTimeout(() => {
+      processRound().catch((err) => {
+        console.error('assault skirmish round error:', err);
+        cleanup(false).catch(() => {});
+      });
+    }, 5000);
+  };
+
+  setTimeout(() => {
+    processRound().catch((err) => {
+      console.error('assault skirmish round error:', err);
+      cleanup(false).catch(() => {});
+    });
+  }, 1000);
+}
+
+async function stopChatAssault(chatId, clanId) {
+  const key = makeAssaultKey(chatId, clanId);
   const state = chatAssaults[key];
   if (!state) return null;
 
@@ -3185,14 +3369,9 @@ bot.onText(/\/assault(?:@\w+)?/, async (msg) => {
   const clan = clans[String(player.clanId)];
   if (!clan) return bot.sendMessage(chatId, "Ошибка: ваш клан не найден.");
 
-  const existing = getChatAssaultState(chatId);
+  const existing = getChatAssaultState(chatId, clan.id);
   if (existing) {
-    if (Number(existing.clanId) === Number(clan.id)) {
-      return bot.sendMessage(chatId, "Ваш клан уже контролирует этот чат.");
-    }
-    const ownerClan = clans[String(existing.clanId)];
-    const ownerName = ownerClan ? ownerClan.name : 'другой клан';
-    return bot.sendMessage(chatId, `База уже установлена кланом "${ownerName}".`);
+    return bot.sendMessage(chatId, "Ваш клан уже контролирует этот чат.");
   }
 
   let memberCount = null;
@@ -3212,9 +3391,19 @@ bot.onText(/\/assault(?:@\w+)?/, async (msg) => {
     pendingExpedition: null,
     nextExpeditionTimer: null
   };
-  chatAssaults[String(chatId)] = state;
+  chatAssaults[makeAssaultKey(chatId, clan.id)] = state;
 
-  const introText = `🏴 Клан "${clan.name}" установил базу в этом чате. Теперь разведчики смогут исследовать территорию и приносить очки клану.\nКаждые 35 минут один случайный участник клана будет автоматически отправляться на разведку.\nДругие жители чата могут атаковать разведчиков, чтобы перехватить добычу.\nЧтобы демонтировать базу, отправьте /unassault.`;
+  const others = getActiveAssaultStatesForChat(chatId).filter((s) => Number(s.clanId) !== Number(clan.id));
+  const otherText = others.length > 0
+    ? `\n\nВ этом чате также установили базы: ${others
+        .map((s) => {
+          const otherClan = clans[String(s.clanId)];
+          return otherClan ? `"${otherClan.name}"` : 'другие кланы';
+        })
+        .join(', ')}.`
+    : '';
+
+  const introText = `🏴 Клан "${clan.name}" установил базу в этом чате. Теперь разведчики смогут исследовать территорию и приносить очки клану.\nКаждые 35 минут один случайный участник клана будет автоматически отправляться на разведку.\nДругие жители чата могут атаковать разведчиков, чтобы перехватить добычу.\nЧтобы демонтировать базу, отправьте /unassault.${otherText}`;
   await bot.sendMessage(chatId, introText).catch(() => {});
   ensureClanHasLeader(clan);
   await beginAssaultExpedition(state);
@@ -3226,13 +3415,13 @@ bot.onText(/\/unassault(?:@\w+)?/, async (msg) => {
   if (!player) return bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
   if (!player.clanId) return bot.sendMessage(chatId, "Вы не состоите в клане.");
 
-  const state = getChatAssaultState(chatId);
-  if (!state) return bot.sendMessage(chatId, "В этом чате нет активной базы клана.");
+  const state = getChatAssaultState(chatId, player.clanId);
+  if (!state) return bot.sendMessage(chatId, "В этом чате нет активной базы вашего клана.");
   if (Number(state.clanId) !== Number(player.clanId)) {
     return bot.sendMessage(chatId, "Только клан, который установил базу, может её убрать.");
   }
 
-  await stopChatAssault(chatId);
+  await stopChatAssault(chatId, state.clanId);
   const clan = clans[String(player.clanId)];
   const clanName = clan ? clan.name : 'клан';
   await bot.sendMessage(chatId, `🏳️ База клана "${clanName}" демонтирована.`).catch(() => {});
@@ -3447,20 +3636,32 @@ if (dataCb === "clans_assault_info") {
 }
 
 if (typeof dataCb === "string" && dataCb.startsWith("assault_attack:")) {
-  const [, chatIdStr, expeditionId] = dataCb.split(":");
+  const [, chatIdStr, clanIdStr, expeditionId] = dataCb.split(":");
   const targetChatId = Number(chatIdStr);
+  const targetClanId = Number(clanIdStr);
+  if (!Number.isFinite(targetChatId) || !Number.isFinite(targetClanId)) {
+    return;
+  }
   const attacker = ensurePlayer(user);
   if (!attacker) {
     return;
   }
 
-  const result = await handleAssaultAttack(targetChatId, expeditionId, attacker);
+  const result = await handleAssaultAttack(targetChatId, targetClanId, expeditionId, attacker);
   if (result.status === "no_attacker_clan") {
     await bot.sendMessage(chatId, "Для нападения нужно состоять в клане.").catch(() => {});
     return;
   }
   if (result.status === "same_clan") {
     await bot.sendMessage(chatId, "Вы не можете атаковать разведчика собственного клана.").catch(() => {});
+    return;
+  }
+  if (result.status === "attacker_busy") {
+    await bot.sendMessage(chatId, "Вы уже участвуете в PvP и не можете начать ещё один бой.").catch(() => {});
+    return;
+  }
+  if (result.status === "defender_busy") {
+    await bot.sendMessage(chatId, "Этот разведчик уже участвует в другом бою.").catch(() => {});
     return;
   }
   if (result.status === "already") {
@@ -3473,6 +3674,9 @@ if (typeof dataCb === "string" && dataCb.startsWith("assault_attack:")) {
   }
   if (result.status === "no_clan") {
     await bot.sendMessage(chatId, "База этого клана уже демонтирована.").catch(() => {});
+    return;
+  }
+  if (result.status === "started") {
     return;
   }
   return;
