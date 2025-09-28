@@ -4309,9 +4309,41 @@ bot.onText(/\/report/, (msg) => {
 });
 
 // /start
+async function playerExistsInPersistentStorage(userId) {
+  const numericId = Number(userId);
+  if (!Number.isFinite(numericId)) return false;
+  if (!pool || typeof pool.execute !== 'function') return false;
+
+  const placeholder = DB_DIALECT === 'postgres' ? '$1' : '?';
+  const query = `SELECT 1 FROM players WHERE id = ${placeholder} LIMIT 1`;
+
+  try {
+    const [rows] = await pool.execute(query, [numericId]);
+    if (Array.isArray(rows)) {
+      return rows.length > 0;
+    }
+    if (rows && Array.isArray(rows.rows)) {
+      return rows.rows.length > 0;
+    }
+    if (rows && typeof rows.rowCount === 'number') {
+      return rows.rowCount > 0;
+    }
+    return Boolean(rows);
+  } catch (err) {
+    if (!/no such table/i.test(String(err.message))) {
+      console.error('Не удалось проверить наличие игрока в базе данных:', err);
+    }
+  }
+
+  return false;
+}
+
 bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
   const playerKey = String(msg.from.id);
-  const existedBefore = Boolean(players[playerKey]);
+  let existedBefore = Boolean(players[playerKey]);
+  if (!existedBefore) {
+    existedBefore = await playerExistsInPersistentStorage(playerKey);
+  }
   const player = ensurePlayer(msg.from);
   if (!player) {
     await bot.sendMessage(msg.chat.id, "Ошибка регистрации. Попробуйте снова.").catch(() => {});
