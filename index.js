@@ -1256,12 +1256,12 @@ function buildSurvivalLeaderboardText(currentPlayer) {
 }
 
 function compareByPvpRating(a, b) {
-  const ratingA = Number.isFinite(a?.pvpRating) ? a.pvpRating : 0;
-  const ratingB = Number.isFinite(b?.pvpRating) ? b.pvpRating : 0;
-  if (ratingB !== ratingA) return ratingB - ratingA;
   const bestA = Number.isFinite(a?.pvpRatingBest) ? a.pvpRatingBest : 0;
   const bestB = Number.isFinite(b?.pvpRatingBest) ? b.pvpRatingBest : 0;
   if (bestB !== bestA) return bestB - bestA;
+  const ratingA = Number.isFinite(a?.pvpRating) ? a.pvpRating : 0;
+  const ratingB = Number.isFinite(b?.pvpRating) ? b.pvpRating : 0;
+  if (ratingB !== ratingA) return ratingB - ratingA;
   const winsA = Number.isFinite(a?.pvpWins) ? a.pvpWins : 0;
   const winsB = Number.isFinite(b?.pvpWins) ? b.pvpWins : 0;
   if (winsB !== winsA) return winsB - winsA;
@@ -1279,7 +1279,7 @@ function buildPvpRatingLeaderboardText(currentPlayer) {
     const displayName = p.username === "serega33115" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
     const rating = Number.isFinite(p?.pvpRating) ? p.pvpRating : 0;
     const best = Number.isFinite(p?.pvpRatingBest) ? p.pvpRatingBest : 0;
-    text += `${i + 1}. ${displayName} — рейтинг ${rating} (рекорд: ${best})\n`;
+    text += `${i + 1}. ${displayName} — рекорд: ${best} (текущий: ${rating})\n`;
   });
   const rank = sorted.findIndex(p => currentPlayer && p.id === currentPlayer.id) + 1;
   const currentRating = Number.isFinite(currentPlayer?.pvpRating) ? currentPlayer.pvpRating : 0;
@@ -1819,8 +1819,6 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
   if (player.hp <= 0) {
     player.infection = Math.max(0, (player.infection || 0) - 400);
     resetSurvivalProgress(player);
-    const hadRating = Number.isFinite(player.pvpRating) && player.pvpRating > 0;
-    resetPvpRating(player);
     applyArmorHelmetBonuses(player);
     player.hp = player.maxHp;
     player.currentDanger = null;
@@ -1832,8 +1830,7 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
       `${escMd(scenario.failure)}`,
       "",
       "☣️ Ты потерял 400 заражения.",
-      "🗓 Дни выживания обнулились.",
-      hadRating ? "🥇 Твой PvP рейтинг обнулился." : null
+      "🗓 Дни выживания обнулились."
     ].filter(Boolean).join("\n");
     await bot.editMessageCaption(failureText, {
       chat_id: chatId,
@@ -4014,8 +4011,6 @@ if (dataCb === "attack") {
             const loss = Math.floor(Math.random() * 26) + 5;
             player.infection = Math.max(0, player.infection - loss);
             resetSurvivalProgress(player);
-            const hadRating = Number.isFinite(player.pvpRating) && player.pvpRating > 0;
-            resetPvpRating(player);
             applyArmorHelmetBonuses(player);
             player.hp = player.maxHp;
             player.monster = null;
@@ -4032,8 +4027,7 @@ if (dataCb === "attack") {
                 `${events.join("\n")}`,
                 "",
                 `☠️ Ты умер и потерял ${loss} уровня заражения☣️. Твой уровень: ${player.infection}`,
-                "🗓 Дни выживания обнулились.",
-                hadRating ? "🥇 Твой PvP рейтинг обнулился." : null
+                "🗓 Дни выживания обнулились."
             ].filter(Boolean);
             await bot.sendMessage(chatId, deathLines.join("\n"), { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
             return;
