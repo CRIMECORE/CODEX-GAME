@@ -4999,7 +4999,7 @@ function startPvpFight(challenger, opponent, chatId, options = {}) {
       // switch turn
       turn = (turn === 'A') ? 'B' : 'A';
       saveData();
-      setTimeout(processRound, 5000);
+      setTimeout(processRound, 2500);
     } catch (e) {
       console.error("startPvpFight error:", e);
       try { bot.sendMessage(chatId, "Ошибка в PvP: " + String(e)); } catch {}
