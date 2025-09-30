@@ -1314,6 +1314,37 @@ function buildClanTopText(player) {
 const PVP_REQUEST_TTL = 60 * 1000;
 const PVP_POINT = 300;
 const RANDOM_PVP_SIGN_CHANCE = 0.5;
+const PVP_START_COOLDOWN = 20 * 1000;
+
+function getLastPvpStart(player) {
+  if (!player || typeof player !== 'object') return 0;
+  const raw = player.lastPvpStartAt ?? player.lastPvpStart ?? 0;
+  const ts = Number(raw);
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function getPvpCooldownRemaining(player) {
+  const lastStart = getLastPvpStart(player);
+  if (!lastStart) return 0;
+  const diff = Date.now() - lastStart;
+  const remaining = PVP_START_COOLDOWN - diff;
+  return remaining > 0 ? remaining : 0;
+}
+
+function isPvpStartOnCooldown(player) {
+  return getPvpCooldownRemaining(player) > 0;
+}
+
+function markPvpStartTimestamp(...participants) {
+  const now = Date.now();
+  let updated = false;
+  for (const participant of participants) {
+    if (!participant || typeof participant !== 'object') continue;
+    participant.lastPvpStartAt = now;
+    updated = true;
+  }
+  if (updated) saveData();
+}
 const CLAN_BATTLE_POINT = 500;
 const CLAN_BATTLE_MIN_PER_CLAN = 2;
 const CLAN_BATTLE_COUNTDOWN_MS = 20000; // 20 seconds
@@ -2208,8 +2239,25 @@ setInterval(() => {
   }
 }, 15 * 1000);
 
+function clearExistingPvpState(player) {
+  if (!player || !player.pvp) return;
+  const opponentId = player.pvp?.opponentId;
+  if (opponentId != null) {
+    const opponentKey = String(opponentId);
+    if (players && Object.prototype.hasOwnProperty.call(players, opponentKey)) {
+      const opponent = players[opponentKey];
+      if (opponent && opponent.pvp && String(opponent.pvp?.opponentId) === String(player.id)) {
+        delete opponent.pvp;
+      }
+    }
+  }
+  delete player.pvp;
+}
+
 function initPvpState(challenger, opponent) {
   if (!challenger || !opponent) return false;
+  clearExistingPvpState(challenger);
+  clearExistingPvpState(opponent);
   applyArmorHelmetBonuses(challenger);
   applyArmorHelmetBonuses(opponent);
   resetPlayerSignFlags(challenger);
@@ -3493,8 +3541,10 @@ if (dataCb === "pvp_find") {
     await bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
     return;
   }
-  if (player.pvp) {
-    await bot.sendMessage(chatId, "Вы уже участвуете в PvP. Дождитесь окончания боя.");
+  const cooldown = getPvpCooldownRemaining(player);
+  if (cooldown > 0) {
+    const seconds = Math.ceil(cooldown / 1000);
+    await bot.sendMessage(chatId, `⏳ Подождите ${seconds} сек. перед началом нового PvP.`);
     return;
   }
 
@@ -3523,8 +3573,10 @@ if (dataCb === "pvp_ranked") {
     await bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
     return;
   }
-  if (player.pvp) {
-    await bot.sendMessage(chatId, "Вы уже участвуете в PvP. Дождитесь окончания боя.");
+  const cooldown = getPvpCooldownRemaining(player);
+  if (cooldown > 0) {
+    const seconds = Math.ceil(cooldown / 1000);
+    await bot.sendMessage(chatId, `⏳ Подождите ${seconds} сек. перед началом нового PvP.`);
     return;
   }
 
@@ -4825,11 +4877,23 @@ function startPvpFight(challenger, opponent, chatId, options = {}) {
     if (chatId) bot.sendMessage(chatId, "Ошибка: участники не найдены.");
     return;
   }
+  const remainingCooldown = Math.max(
+    getPvpCooldownRemaining(challenger),
+    getPvpCooldownRemaining(opponent)
+  );
+  if (remainingCooldown > 0) {
+    if (chatId) {
+      const seconds = Math.ceil(remainingCooldown / 1000);
+      bot.sendMessage(chatId, `⏳ Подождите ${seconds} сек. перед началом нового PvP.`);
+    }
+    return;
+  }
   // ensure pvp state initialized
   if (!initPvpState(challenger, opponent)) {
     bot.sendMessage(chatId, "Не удалось инициализировать PvP.");
     return;
   }
+  markPvpStartTimestamp(challenger, opponent);
 
   const ranked = Boolean(options?.ranked);
   const ratingReward = Number.isFinite(options?.ratingReward)
@@ -4981,7 +5045,11 @@ bot.onText(/\/pvp(?:\s+(.+))?/, async (msg, match) => {
     }
     const challenger = players[String(req.challengerId)];
     if (!challenger) return bot.sendMessage(chatId, "Не удалось найти игрока, подавшего заявку.");
-    if (challenger.pvp || player.pvp) return bot.sendMessage(chatId, "Один из игроков уже в PvP.");
+    const cooldown = Math.max(getPvpCooldownRemaining(challenger), getPvpCooldownRemaining(player));
+    if (cooldown > 0) {
+      const seconds = Math.ceil(cooldown / 1000);
+      return bot.sendMessage(chatId, `⏳ Один из игроков недавно начал PvP. Подождите ${seconds} сек.`);
+    }
     // clear request keys
     clearPvpRequestForPlayer(challenger);
     // start fight
