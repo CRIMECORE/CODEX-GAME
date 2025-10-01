@@ -3980,7 +3980,7 @@ if (dataCb === "legend_box") {
 if (dataCb === "hunt") {
   const now = Date.now();
   let huntCooldown = 15000;
-  if (player && (player.id === 7897895019 || player.id === 7026777373 || player.id === 1691313515)) {
+  if (player && (player.id === 7897895019 || player.id === 7026777373 || player.id === 169131351)) {
     huntCooldown = 1000;
   }
   // Проверка кулдауна с антиспамом сообщения
