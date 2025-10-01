@@ -1914,7 +1914,9 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
       const picked = pickByChance(dropPool);
       if (picked) {
         player.pendingDrop = { ...picked };
-        successText += `\n\n🎁 Выпало: ${escMd(picked.name)}\nЧто делать?`;
+        const kindLabel = getItemKindLabel(item.kind);
+        const kindText = kindLabel ? `\n🏷 Тип предмета: ${kindLabel}.` : "";
+        successText += `${sourceText}\n\n🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.${kindText}${bonusText}\nЧто делаем?`;
         replyMarkup = {
           inline_keyboard: [
             [{ text: "✅ Взять", callback_data: "take_drop" }],
@@ -4350,7 +4352,9 @@ if (dataCb === "attack") {
       const picked = pickByChance(dropPool);
       if (picked) {
         player.pendingDrop = { ...picked };
-        text += `\n\n🎁 Выпало: ${escMd(picked.name)}\nЧто делать?`;
+        const kindLabel = getItemKindLabel(item.kind);
+        const kindText = kindLabel ? `\n🏷 Тип предмета: ${kindLabel}.` : "";
+        text += `${sourceText}\n\n🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.${kindText}${bonusText}\nЧто делаем?`;
         saveData();
         await editOrSend(chatId, messageId, text, {
           reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }], [{ text: "🗑️ Выбросить", callback_data: "discard_drop" }]] }
