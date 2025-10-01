@@ -4488,12 +4488,11 @@ bot.onText(/^\/pull$/i, async (msg) => {
   const chatId = msg.chat.id;
   const fromId = msg.from.id;
 
-  // Проверяем доступ
   // if (fromId !== 169131351) {
   //   return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
   // }
 
-  bot.sendMessage(chatId, "📡 ХУЙХУЙХУЙХУУХЙУЙХОбновление из ветки test...");
+  bot.sendMessage(chatId, "📡 Обновление из ветки test...");
 
   exec('git pull origin test', (error, stdout, stderr) => {
     if (error) {
