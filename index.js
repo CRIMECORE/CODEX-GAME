@@ -2,6 +2,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 import fs from 'fs';
+const { exec } = require('child_process');
 
 import { ensureEnvConfig } from './lib/env.js';
 import { optionalImport } from './lib/optionalImport.js';
@@ -4480,6 +4481,32 @@ bot.onText(/^\/reboot$/i, (msg) => {
     fs.utimesSync(filePath, new Date(), new Date());
     process.exit(0); // Nodemon увидит изменение и перезапустит
   }, 1000);
+});
+
+
+bot.onText(/^\/pull$/i, async (msg) => {
+  const chatId = msg.chat.id;
+  const fromId = msg.from.id;
+
+  // Проверяем доступ
+  // if (fromId !== 169131351) {
+  //   return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+  // }
+
+  bot.sendMessage(chatId, "📡 Обновление из ветки test...");
+
+  exec('git pull origin test', (error, stdout, stderr) => {
+    if (error) {
+      console.error(error);
+      return bot.sendMessage(chatId, `❌ Ошибка при выполнении git pull:\n<code>${error.message}</code>`, { parse_mode: 'HTML' });
+    }
+
+    if (stderr) {
+      bot.sendMessage(chatId, `⚠️ Предупреждение:\n<code>${stderr}</code>`, { parse_mode: 'HTML' });
+    }
+
+    bot.sendMessage(chatId, `✅ Обновление завершено.\n<code>${stdout}</code>`, { parse_mode: 'HTML' });
+  });
 });
 
 // Add this with other command handlers
