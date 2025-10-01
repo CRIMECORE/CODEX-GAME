@@ -191,6 +191,20 @@ const TOKEN = process.env.TELEGRAM_TOKEN || process.env.TOKEN || process.env.BOT
 
 const ITEM_IMAGE_MAP = getItemImageMap();
 
+const ITEM_KIND_LABELS = {
+  armor: "броня",
+  weapon: "оружие",
+  extra: "доп предмет",
+  helmet: "шлем",
+  mutation: "мутация",
+  sign: "знак"
+};
+
+function getItemKindLabel(kind) {
+  if (!kind) return null;
+  return ITEM_KIND_LABELS[String(kind)] || null;
+}
+
 async function generateInventoryImage(player) {
   try {
     const baseUrl = (player && player.baseUrl) || 'https://i.postimg.cc/RZbFRZzj/2.png';
@@ -2196,7 +2210,9 @@ async function giveItemToPlayer(chatId, player, item, sourceText = "") {
   if (item.kind === "sign") {
     bonusText = `\n✨ Эффект: ${describeSignEffect(item)}`;
   }
-  const text = `${sourceText}\n\n🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.${bonusText}\nЧто делаем?`;
+  const kindLabel = getItemKindLabel(item.kind);
+  const kindText = kindLabel ? `\n🏷 Тип предмета: ${kindLabel}.` : "";
+  const text = `${sourceText}\n\n🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.${kindText}${bonusText}\nЧто делаем?`;
   await bot.sendMessage(chatId, text, {
     parse_mode: "Markdown",
     reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }],[{ text: "🗑️ Выбросить", callback_data: "discard_drop" }],[{ text: "⬅️ В меню", callback_data: "play" }]] }
