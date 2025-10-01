@@ -207,6 +207,32 @@ function getItemKindLabel(kind) {
   return ITEM_KIND_LABELS[String(kind)] || null;
 }
 
+function buildItemTypeText(item) {
+  if (!item) return "";
+  const kindLabel = getItemKindLabel(item.kind);
+  return kindLabel ? `\n🏷 Тип предмета: ${kindLabel}.` : "";
+}
+
+function formatItemRewardMessage(item) {
+  if (!item) return "";
+  let text = `🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.`;
+  text += buildItemTypeText(item);
+  if (item.kind === "sign") {
+    text += `\n✨ Эффект: ${describeSignEffect(item)}`;
+  }
+  return text;
+}
+
+function formatDropSummary(item) {
+  if (!item) return "";
+  let text = `🎁 Выпало: ${item.name}`;
+  text += buildItemTypeText(item);
+  if (item.kind === "sign") {
+    text += `\n✨ Эффект: ${describeSignEffect(item)}`;
+  }
+  return text;
+}
+
 async function generateInventoryImage(player) {
   try {
     const baseUrl = (player && player.baseUrl) || 'https://i.postimg.cc/RZbFRZzj/2.png';
@@ -1915,9 +1941,8 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
       const picked = pickByChance(dropPool);
       if (picked) {
         player.pendingDrop = { ...picked };
-        const kindLabel = getItemKindLabel(item.kind);
-        const kindText = kindLabel ? `\n🏷 Тип предмета: ${kindLabel}.` : "";
-        successText += `${sourceText}\n\n🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.${kindText}${bonusText}\nЧто делаем?`;
+        const rewardText = formatItemRewardMessage(picked);
+        successText += `\n\n${rewardText}\nЧто делаем?`;
         replyMarkup = {
           inline_keyboard: [
             [{ text: "✅ Взять", callback_data: "take_drop" }],
@@ -2210,13 +2235,9 @@ async function giveItemToPlayer(chatId, player, item, sourceText = "") {
   if (!player || !item) return;
   player.pendingDrop = { ...item };
   saveData();
-  let bonusText = "";
-  if (item.kind === "sign") {
-    bonusText = `\n✨ Эффект: ${describeSignEffect(item)}`;
-  }
-  const kindLabel = getItemKindLabel(item.kind);
-  const kindText = kindLabel ? `\n🏷 Тип предмета: ${kindLabel}.` : "";
-  const text = `${sourceText}\n\n🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.${kindText}${bonusText}\nЧто делаем?`;
+  const rewardText = formatItemRewardMessage(item);
+  const prefix = sourceText ? `${sourceText}\n\n` : "";
+  const text = `${prefix}${rewardText}\nЧто делаем?`;
   await bot.sendMessage(chatId, text, {
     parse_mode: "Markdown",
     reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }],[{ text: "🗑️ Выбросить", callback_data: "discard_drop" }],[{ text: "⬅️ В меню", callback_data: "play" }]] }
@@ -4230,11 +4251,8 @@ if (dataCb === "attack") {
             winText += `\n${survivalMessage}`;
         }
         if (player.pendingDrop) {
-            winText += `\n\n🎁 Выпало: ${player.pendingDrop.name}`;
-            if (player.pendingDrop.kind === "sign") {
-                winText += `\n✨ Эффект: ${describeSignEffect(player.pendingDrop)}`;
-            }
-            winText += `\nЧто делать?`;
+            const dropSummary = formatDropSummary(player.pendingDrop);
+            winText += `\n\n${dropSummary}\nЧто делать?`;
             await bot.sendMessage(chatId, `${events.join("\n")}\n\n${winText}`, {
                 reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }],[{ text: "🗑️ Выбросить", callback_data: "discard_drop" }]] }
             });
@@ -4353,9 +4371,8 @@ if (dataCb === "attack") {
       const picked = pickByChance(dropPool);
       if (picked) {
         player.pendingDrop = { ...picked };
-        const kindLabel = getItemKindLabel(item.kind);
-        const kindText = kindLabel ? `\n🏷 Тип предмета: ${kindLabel}.` : "";
-        text += `${sourceText}\n\n🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.${kindText}${bonusText}\nЧто делаем?`;
+        const rewardText = formatItemRewardMessage(picked);
+        text += `\n\n${rewardText}\nЧто делаем?`;
         saveData();
         await editOrSend(chatId, messageId, text, {
           reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }], [{ text: "🗑️ Выбросить", callback_data: "discard_drop" }]] }
