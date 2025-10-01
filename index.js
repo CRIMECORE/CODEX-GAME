@@ -2,7 +2,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 import fs from 'fs';
-const { exec } = require('child_process');
+import { exec } from 'child_process';
 
 import { ensureEnvConfig } from './lib/env.js';
 import { optionalImport } from './lib/optionalImport.js';
