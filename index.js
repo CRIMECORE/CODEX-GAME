@@ -1914,7 +1914,9 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
       const picked = pickByChance(dropPool);
       if (picked) {
         player.pendingDrop = { ...picked };
-        successText += `\n\n🎁 Выпало: ${escMd(picked.name)}\nЧто делать?`;
+        const kindLabel = getItemKindLabel(item.kind);
+        const kindText = kindLabel ? `\n🏷 Тип предмета: ${kindLabel}.` : "";
+        successText += `${sourceText}\n\n🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.${kindText}${bonusText}\nЧто делаем?`;
         replyMarkup = {
           inline_keyboard: [
             [{ text: "✅ Взять", callback_data: "take_drop" }],
@@ -3978,7 +3980,7 @@ if (dataCb === "legend_box") {
 if (dataCb === "hunt") {
   const now = Date.now();
   let huntCooldown = 15000;
-  if (player && (player.id === 7897895019 || player.id === 7026777373)) {
+  if (player && (player.id === 7897895019 || player.id === 7026777373 || player.id === 169131351)) {
     huntCooldown = 1000;
   }
   // Проверка кулдауна с антиспамом сообщения
@@ -4350,7 +4352,9 @@ if (dataCb === "attack") {
       const picked = pickByChance(dropPool);
       if (picked) {
         player.pendingDrop = { ...picked };
-        text += `\n\n🎁 Выпало: ${escMd(picked.name)}\nЧто делать?`;
+        const kindLabel = getItemKindLabel(item.kind);
+        const kindText = kindLabel ? `\n🏷 Тип предмета: ${kindLabel}.` : "";
+        text += `${sourceText}\n\n🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.${kindText}${bonusText}\nЧто делаем?`;
         saveData();
         await editOrSend(chatId, messageId, text, {
           reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }], [{ text: "🗑️ Выбросить", callback_data: "discard_drop" }]] }
