@@ -5401,7 +5401,7 @@ function startKeepAliveScheduler(targets) {
 
 
 if (process.env.NODE_ENV !== 'test') {
-  const PORT = Number.parseInt(process.env.PORT, 10) || 3000;
+  const PORT = Number.parseInt(process.env.PORT, 10) || 3001;
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Bot is running\n');
