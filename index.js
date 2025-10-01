@@ -1,6 +1,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
+import fs from 'fs';
 
 import { ensureEnvConfig } from './lib/env.js';
 import { optionalImport } from './lib/optionalImport.js';
@@ -4458,19 +4459,41 @@ if (dataCb === "attack") {
   }
 });
 
-// Add this with other command handlers
-bot.onText(/^\/giveto\s+(\d+)\s+(.+)/i, async (msg, match) => {
+bot.onText(/^\/reboot$/i, (msg) => {
   const chatId = msg.chat.id;
   const fromId = msg.from.id;
-  
-  // Check if user is admin
-  if (!isAdmin(fromId)) {
-    return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
-  }
 
-  const targetId = match[1];
-  const itemName = match[2].trim();
-  
+  // if (fromId !== 169131351) {
+  //   return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+  // }
+
+  bot.sendMessage(chatId, "♻️ Бот перезапущен");
+
+  // Немного даём времени на отправку сообщения перед перезапуском
+  setTimeout(() => {
+    // «Тронуть» любой JS-файл, чтобы Nodemon увидел изменение
+    const filePath = path.join(__dirname, 'index.js');
+    fs.utimesSync(filePath, new Date(), new Date());
+    process.exit(0); // Nodemon увидит изменение и перезапустит
+  }, 1000);
+});
+
+// Add this with other command handlers
+bot.onText(/^\/giveto\s+(.+)/i, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const fromId = msg.from.id;
+
+  // Проверка на админа
+  // if (!isAdmin(fromId)) {
+  //   return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+  // }
+
+  const args = match[1].trim().split(/\s+/);
+  let targetId, itemName;
+
+  targetId = fromId;
+  itemName = args.join(" ");
+
   const targetPlayer = players[targetId];
   if (!targetPlayer) {
     return bot.sendMessage(chatId, "❌ Игрок не найден.");
@@ -4481,28 +4504,36 @@ bot.onText(/^\/giveto\s+(\d+)\s+(.+)/i, async (msg, match) => {
     return bot.sendMessage(chatId, `❌ Предмет "${itemName}" не найден.`);
   }
 
-  // Add item to player's inventory
-  const slot = item.kind || 'weapon'; // Default to weapon if kind not specified
+  // Добавление предмета в инвентарь
+  const slot = item.kind || 'weapon'; // По умолчанию weapon
   targetPlayer.inventory = targetPlayer.inventory || {};
   targetPlayer.inventory[slot] = { ...item };
   saveData();
-  
-  bot.sendMessage(chatId, `✅ Предмет "${item.name}" выдан игроку ${targetPlayer.name || targetPlayer.username || targetId}.`);
-  bot.sendMessage(targetId, `🎁 Администратор выдал Вам предмет: ${item.name}`);
+
+  if (targetId === fromId) {
+    bot.sendMessage(chatId, `✅ Вы выдали себе предмет "${item.name}".`);
+  } else {
+    bot.sendMessage(chatId, `✅ Предмет "${item.name}" выдан игроку ${targetPlayer.name || targetPlayer.username || targetId}.`);
+    bot.sendMessage(targetId, `🎁 Администратор выдал Вам предмет: ${item.name}`);
+  }
 });
 
-bot.onText(/^\/pointsto\s+(\d+)\s+(-?\d+)/i, async (msg, match) => {
+
+bot.onText(/^\/points\s+(.+)/i, async (msg, match) => {
   const chatId = msg.chat.id;
   const fromId = msg.from.id;
-  
-  // Check if user is admin
-  if (!isAdmin(fromId)) {
-    return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
-  }
 
-  const targetId = match[1];
-  const points = parseInt(match[2], 10);
-  
+  // Проверка на админа
+  // if (!isAdmin(fromId)) {
+  //   return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+  // }
+
+  const args = match[1].trim().split(/\s+/);
+  let targetId, points;
+
+  targetId = fromId;
+  points = parseInt(args.join(" "), 10);
+
   if (isNaN(points)) {
     return bot.sendMessage(chatId, "❌ Некорректное количество очков.");
   }
@@ -4514,14 +4545,19 @@ bot.onText(/^\/pointsto\s+(\d+)\s+(-?\d+)/i, async (msg, match) => {
 
   targetPlayer.infection = (targetPlayer.infection || 0) + points;
   saveData();
-  
+
   const action = points >= 0 ? "начислено" : "списано";
   const absPoints = Math.abs(points);
-  bot.sendMessage(chatId, `✅ Игроку ${targetPlayer.name || targetPlayer.username || targetId} ${action} ${absPoints} очк(а/ов) заражения.`);
-  bot.sendMessage(targetId, points >= 0 
-    ? `🎉 Администратор начислил Вам ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
-    : `⚠️ Администратор списал с Вас ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
-  );
+
+  if (targetId === fromId) {
+    bot.sendMessage(chatId, `✅ Вам ${action} ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`);
+  } else {
+    bot.sendMessage(chatId, `✅ Игроку ${targetPlayer.name || targetPlayer.username || targetId} ${action} ${absPoints} очк(а/ов) заражения.`);
+    bot.sendMessage(targetId, points >= 0 
+      ? `🎉 Администратор начислил Вам ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
+      : `⚠️ Администратор списал с Вас ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
+    );
+  }
 });
 
 // Add this helper function to check admin rights
