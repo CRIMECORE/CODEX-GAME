@@ -199,6 +199,12 @@ const ITEM_DEFINITIONS_BY_KIND = getAllItemDefinitions();
 
 const ITEM_RARITY_LOOKUP_BY_KIND = new Map();
 const ITEM_RARITY_LOOKUP_BY_NAME = new Map();
+const ITEM_RARITY_LABEL_TO_KEY = new Map([
+  ['крайне редкое', 'very_rare'],
+  ['редкое', 'rare'],
+  ['обычная редкость', 'common'],
+  ['легендарная редкость', 'legendary']
+]);
 
 for (const [kind, definitions] of Object.entries(ITEM_DEFINITIONS_BY_KIND)) {
   for (const def of definitions) {
@@ -211,6 +217,12 @@ for (const [kind, definitions] of Object.entries(ITEM_DEFINITIONS_BY_KIND)) {
     ITEM_RARITY_LOOKUP_BY_KIND.set(`${kind}:${normalized}`, rarityMeta);
     if (!ITEM_RARITY_LOOKUP_BY_NAME.has(normalized)) {
       ITEM_RARITY_LOOKUP_BY_NAME.set(normalized, rarityMeta);
+    }
+    if (rarityMeta?.label && rarityMeta?.key) {
+      const labelKey = rarityMeta.label.trim().toLowerCase();
+      if (labelKey && !ITEM_RARITY_LABEL_TO_KEY.has(labelKey)) {
+        ITEM_RARITY_LABEL_TO_KEY.set(labelKey, rarityMeta.key);
+      }
     }
   }
 }
@@ -276,6 +288,35 @@ function buildItemRarityText(item) {
   if (!rarity || !rarity.label) return "";
   const emoji = rarity.key ? ITEM_RARITY_EMOJI[rarity.key] || '⭐️' : '⭐️';
   return `\n${emoji} Редкость: ${rarity.label}.`;
+}
+
+function getSignTemplateByName(name) {
+  if (!name) return null;
+  const lower = String(name).toLowerCase();
+  return signItems.find((it) => String(it.name).toLowerCase() === lower) || null;
+}
+
+function getSignEffects(sign) {
+  if (!sign) {
+    return {
+      name: null,
+      vampirism: 0,
+      dodgeChance: 0,
+      preventLethal: null,
+      extraTurn: false,
+      fullHeal: false
+    };
+  }
+  const template = getSignTemplateByName(sign.name);
+  const merged = { ...template, ...sign };
+  return {
+    name: merged?.name || null,
+    vampirism: merged?.vampirism || 0,
+    dodgeChance: merged?.dodgeChance || 0,
+    preventLethal: merged?.preventLethal || null,
+    extraTurn: Boolean(merged?.extraTurn),
+    fullHeal: Boolean(merged?.fullHeal)
+  };
 }
 
 function describeSignEffect(sign) {
@@ -1113,7 +1154,6 @@ function escMd(str) {
     .replace(/\>/g, '\\>')
     .replace(/\#/g, '\\#')
     .replace(/\+/g, '\\+')
-    .replace(/\-/g, '\\-')
     .replace(/\=/g, '\\=')
     .replace(/\|/g, '\\|')
     .replace(/\{/g, '\\{')
@@ -1217,6 +1257,37 @@ function buildInventoryText(player) {
     formatItemLine("⚠️ Знак", inv.sign, (item) => describeSignEffect(item))
   ];
   return lines.join("\n");
+}
+
+function buildCrimecoinsInfoText(player) {
+  const balance = player?.crimecoins || 0;
+  const contact = DONATION_CONTACT ? escMd(DONATION_CONTACT) : null;
+  const lines = [
+    "🪙 CRIMECOINS",
+    "",
+    `Текущий баланс: *${balance}*`,
+    "",
+    "Эта валюта выдаётся только за добровольные пожертвования.",
+    "Её можно обменять на кейсы или другие бонусы в будущем."
+  ];
+  if (contact) {
+    lines.push("", `По вопросам обращайтесь к ${contact}.`);
+  }
+  return lines.join("\n");
+}
+
+function buildInventoryKeyboard(activeTab = "gear") {
+  const gearLabel = `${activeTab === "gear" ? "• " : ""}🎒 Снаряжение`;
+  const coinLabel = `${activeTab === "coins" ? "• " : ""}🪙 CRIMECOINS`;
+  return {
+    inline_keyboard: [
+      [
+        { text: gearLabel, callback_data: "inventory" },
+        { text: coinLabel, callback_data: "inventory:crimecoins" }
+      ],
+      [{ text: "⬅️ Назад", callback_data: "play" }]
+    ]
+  };
 }
 
 function mainMenuKeyboard() {
@@ -1595,35 +1666,6 @@ const CLAN_BATTLE_MIN_PER_CLAN = 2;
 const CLAN_BATTLE_COUNTDOWN_MS = 20000; // 20 seconds
 
 // --- Items (same as before) ---
-function getSignTemplateByName(name) {
-  if (!name) return null;
-  const lower = String(name).toLowerCase();
-  return signItems.find((it) => String(it.name).toLowerCase() === lower) || null;
-}
-
-function getSignEffects(sign) {
-  if (!sign) {
-    return {
-      name: null,
-      vampirism: 0,
-      dodgeChance: 0,
-      preventLethal: null,
-      extraTurn: false,
-      fullHeal: false
-    };
-  }
-  const template = getSignTemplateByName(sign.name);
-  const merged = { ...template, ...sign };
-  return {
-    name: merged.name,
-    vampirism: merged.vampirism || 0,
-    dodgeChance: merged.dodgeChance || 0,
-    preventLethal: merged.preventLethal || null,
-    extraTurn: Boolean(merged.extraTurn),
-    fullHeal: Boolean(merged.fullHeal)
-  };
-}
-
 function pickRandomSignCaseItem() {
   return pickCaseItem(CASE_TYPES.SIGN, { includeSigns: true });
 }
@@ -2671,6 +2713,30 @@ function pickFromSubscriptionPool(caseType = CASE_TYPES.FREE_GIFT) {
 }
 
 const CASE_PREVIEW_KIND_ORDER = ['weapon', 'armor', 'helmet', 'mutation', 'extra', 'sign'];
+const CASE_PREVIEW_RARITY_ORDER = ['legendary', 'very_rare', 'rare', 'common'];
+
+function resolveRarityKey(rarity) {
+  if (!rarity) return null;
+  if (rarity.key && typeof rarity.key === 'string') {
+    return rarity.key.trim().toLowerCase();
+  }
+  if (rarity.label && typeof rarity.label === 'string') {
+    const normalizedLabel = rarity.label.trim().toLowerCase();
+    if (ITEM_RARITY_LABEL_TO_KEY.has(normalizedLabel)) {
+      return ITEM_RARITY_LABEL_TO_KEY.get(normalizedLabel);
+    }
+  }
+  return null;
+}
+
+function getCasePreviewSortMeta(item) {
+  const rarity = resolveItemRarity(item);
+  const rarityKey = resolveRarityKey(rarity);
+  const rarityIndex = rarityKey ? CASE_PREVIEW_RARITY_ORDER.indexOf(rarityKey) : -1;
+  const rank = rarityIndex === -1 ? CASE_PREVIEW_RARITY_ORDER.length : rarityIndex;
+  const chance = Number.isFinite(item?.chance) ? item.chance : Number.POSITIVE_INFINITY;
+  return { rank, chance };
+}
 
 function formatCasePreviewLine(item) {
   const rarity = resolveItemRarity(item);
@@ -2702,11 +2768,22 @@ function buildCasePreviewText(caseId) {
   const sections = [];
   for (const kind of CASE_PREVIEW_KIND_ORDER) {
     if (!byKind.has(kind)) continue;
-    const list = byKind.get(kind).slice().sort((a, b) => {
-      const nameA = String(a.name || '').toLocaleLowerCase('ru');
-      const nameB = String(b.name || '').toLocaleLowerCase('ru');
-      return nameA.localeCompare(nameB, 'ru');
-    });
+    const list = byKind
+      .get(kind)
+      .slice()
+      .sort((a, b) => {
+        const rarityA = getCasePreviewSortMeta(a);
+        const rarityB = getCasePreviewSortMeta(b);
+        if (rarityA.rank !== rarityB.rank) {
+          return rarityA.rank - rarityB.rank;
+        }
+        if (rarityA.chance !== rarityB.chance) {
+          return rarityA.chance - rarityB.chance;
+        }
+        const nameA = String(a.name || '').toLocaleLowerCase('ru');
+        const nameB = String(b.name || '').toLocaleLowerCase('ru');
+        return nameA.localeCompare(nameB, 'ru');
+      });
     const kindLabel = getItemKindLabel(kind) || kind;
     const lines = list.map((item) => formatCasePreviewLine(item));
     sections.push(`*${escMd(capitalizeFirst(kindLabel))}*\n${lines.join('\n')}`);
@@ -4993,15 +5070,69 @@ if (dataCb === "attack") {
 
   if (dataCb === "inventory") {
     const chatId = q.message.chat.id;
+    const messageId = q.message?.message_id;
     const player = ensurePlayer(q.from);
     ensurePvpRatingFields(player);
     const text = buildInventoryText(player);
+    const keyboard = buildInventoryKeyboard("gear");
     const img = await generateInventoryImage(player);
-    const kb = { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] };
+
+    await bot.answerCallbackQuery(q.id).catch(() => {});
+
     if (img) {
-      await bot.sendPhoto(chatId, img, { caption: text, parse_mode: "Markdown", reply_markup: kb });
-    } else {
-      await bot.sendMessage(chatId, text, { parse_mode: "Markdown", reply_markup: kb });
+      if (q.message?.photo?.length) {
+        try {
+          await bot.editMessageMedia(
+            { type: "photo", media: { source: img }, caption: text, parse_mode: "Markdown" },
+            { chat_id: chatId, message_id: messageId, reply_markup: keyboard }
+          );
+          return;
+        } catch (err) {
+          // Fallback to sending a fresh photo below.
+        }
+      }
+
+      await bot.sendPhoto(chatId, img, { caption: text, parse_mode: "Markdown", reply_markup: keyboard });
+      return;
+    }
+
+    await editOrSend(chatId, messageId, text, { reply_markup: keyboard, parse_mode: "Markdown" });
+    return;
+  }
+
+  if (dataCb === "inventory:crimecoins") {
+    const chatId = q.message.chat.id;
+    const messageId = q.message?.message_id;
+    const player = ensurePlayer(q.from);
+    ensurePvpRatingFields(player);
+    const text = buildCrimecoinsInfoText(player);
+    const keyboard = buildInventoryKeyboard("coins");
+
+    await bot.answerCallbackQuery(q.id).catch(() => {});
+
+    if (q.message?.photo?.length) {
+      try {
+        await bot.editMessageCaption(text, {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: "Markdown",
+          reply_markup: keyboard
+        });
+        return;
+      } catch (err) {
+        // Fall through to editing text if caption update fails.
+      }
+    }
+
+    try {
+      await bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: "Markdown",
+        reply_markup: keyboard
+      });
+    } catch (err) {
+      await bot.sendMessage(chatId, text, { parse_mode: "Markdown", reply_markup: keyboard });
     }
 
     return;
