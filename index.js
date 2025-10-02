@@ -377,6 +377,12 @@ const KEEPALIVE_BASE_TARGETS = [
 ].filter((url) => typeof url === 'string' && url.trim().length > 0);
 const KEEPALIVE_INTERVAL_MS = Number.parseInt(process.env.KEEPALIVE_INTERVAL_MS, 10) || 5 * 60 * 1000;
 
+const BLOOD_REMINDER_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+const BLOOD_REMINDER_CHECK_INTERVAL_MS =
+  Number.parseInt(process.env.BLOOD_REMINDER_CHECK_INTERVAL_MS, 10) || 60 * 60 * 1000;
+const BLOOD_REMINDER_MESSAGE =
+  'Твое тело поглощает заражение, ты должен выйти на охоту и найти свежую кровь! 🩸🩸🩸';
+
 const DEFAULT_STATE = () => ({
   players: {},
   clans: {},
@@ -389,6 +395,7 @@ let players = data.players;
 let clans = data.clans;
 let clanInvites = data.clanInvites;
 let clanBattles = data.clanBattles;
+let bloodReminderTimer = null;
 
 // Prevent concurrent writes under heavy load
 let savingPromise = Promise.resolve();
@@ -409,6 +416,81 @@ function applyState(state) {
   clanBattles = normalized.clanBattles;
   clanInvites = normalized.clanInvites;
   Object.assign(data, normalized);
+}
+
+function stopBloodReminderScheduler() {
+  if (bloodReminderTimer) {
+    clearInterval(bloodReminderTimer);
+    bloodReminderTimer = null;
+  }
+}
+
+async function runBloodReminderSweep() {
+  if (!bot) return;
+
+  const now = Date.now();
+  let dataChanged = false;
+  const sendPromises = [];
+
+  for (const player of Object.values(players)) {
+    if (!player || typeof player.id === 'undefined') continue;
+
+    const lastReminder = Number(player.lastBloodReminderAt);
+    if (!Number.isFinite(lastReminder) || lastReminder <= 0) {
+      player.lastBloodReminderAt = now;
+      dataChanged = true;
+      continue;
+    }
+
+    if (now - lastReminder < BLOOD_REMINDER_INTERVAL_MS) continue;
+
+    player.lastBloodReminderAt = now;
+    dataChanged = true;
+
+    sendPromises.push(
+      bot
+        .sendMessage(player.id, BLOOD_REMINDER_MESSAGE)
+        .catch((err) => {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              'Не удалось отправить напоминание о крови игроку',
+              player.id,
+              err?.message || err
+            );
+          }
+        })
+    );
+  }
+
+  if (sendPromises.length > 0) {
+    await Promise.allSettled(sendPromises);
+  }
+
+  if (dataChanged) {
+    try {
+      await saveData();
+    } catch (err) {
+      console.error('Не удалось сохранить состояние после напоминаний о крови:', err);
+    }
+  }
+}
+
+function startBloodReminderScheduler() {
+  if (process.env.NODE_ENV === 'test') return;
+
+  stopBloodReminderScheduler();
+
+  const runSweep = () => {
+    runBloodReminderSweep().catch((err) => {
+      console.error('Ошибка в обработке напоминаний о крови:', err);
+    });
+  };
+
+  runSweep();
+  bloodReminderTimer = setInterval(runSweep, BLOOD_REMINDER_CHECK_INTERVAL_MS);
+  if (typeof bloodReminderTimer?.unref === 'function') {
+    bloodReminderTimer.unref();
+  }
 }
 
 function toJsonText(value) {
@@ -993,7 +1075,8 @@ function ensurePlayer(user) {
       currentDangerMsgId: null,
       inviteCasesAvailable: 0,
       inviteCasesOpened: 0,
-      invitedUserIds: []
+      invitedUserIds: [],
+      lastBloodReminderAt: Date.now()
     };
     players[key] = p;
     saveData();
@@ -1022,6 +1105,11 @@ function ensurePlayer(user) {
     }
     if (typeof p.inviteCaseOpened === 'boolean') {
       delete p.inviteCaseOpened;
+    }
+    if (!Number.isFinite(Number(p.lastBloodReminderAt)) || Number(p.lastBloodReminderAt) <= 0) {
+      p.lastBloodReminderAt = Date.now();
+    } else {
+      p.lastBloodReminderAt = Number(p.lastBloodReminderAt);
     }
   }
   return p;
@@ -1248,6 +1336,7 @@ function resourcesKeyboard() {
 }
 
 async function startBot() {
+    stopBloodReminderScheduler();
     if (typeof bot !== 'undefined' && bot) {
         bot.removeAllListeners();
         if (bot.stopPolling) {
@@ -1262,6 +1351,8 @@ async function startBot() {
   console.log("Бот запущен ✅");
 
   bot = new TelegramBot(TOKEN, { polling: true, httpFetch: fetch });
+
+  startBloodReminderScheduler();
 
   const ALLOWED_USER_ID = 7897895019;
 
