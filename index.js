@@ -1301,7 +1301,7 @@ function mainMenuKeyboard() {
       [{ text: "🩸 Выйти на охоту", callback_data: "hunt" }],
       [{ text: "🎰 Кейсы", callback_data: "cases" }],
       [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
-      [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
+      [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard_menu" }],
       [{ text: "⚔️ PvP", callback_data: "pvp_menu" }],
       [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
       [{ text: "📚 Ресурсы", callback_data: "resources" }]
@@ -1323,11 +1323,30 @@ function lootMenuKeyboard() {
   };
 }
 
+function leaderboardMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🎯 Лидеры Охоты", callback_data: "leaderboard_survival" }],
+      [{ text: "⚔️ Лидеры PvP", callback_data: "pvp_leaderboard" }],
+      [{ text: "🏰 Топ кланы", callback_data: "clans_top" }],
+      [{ text: "⬅️ Назад", callback_data: "play" }]
+    ]
+  };
+}
+
+function leaderboardResultKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "⬅️ Назад", callback_data: "leaderboard_menu" }],
+      [{ text: "🏠 Главное меню", callback_data: "play" }]
+    ]
+  };
+}
+
 function clansMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "Создать / принять клан", callback_data: "clans_create_join" }],
-      [{ text: "Топ кланов", callback_data: "clans_top" }],
       [{ text: "Клановая битва", callback_data: "clans_battle_info" }],
       [{ text: "⚔️ Захват чата", callback_data: "clans_assault_info" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
@@ -2677,7 +2696,6 @@ function pvpMenuKeyboard() {
       [{ text: "💬 PvP в чате", callback_data: "pvp_chat" }],
       [{ text: "🤖 Поиск противника", callback_data: "pvp_find" }],
       [{ text: "🥇 Рейтинговый PVP", callback_data: "pvp_ranked" }],
-      [{ text: "🏆 Таблица лидеров PVP", callback_data: "pvp_leaderboard" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
@@ -4299,6 +4317,8 @@ bot.on("callback_query", async (q) => {
       "pvp_find",
       "pvp_ranked",
       "pvp_leaderboard",
+      "leaderboard_menu",
+      "leaderboard_survival",
       "clans_menu",
       "clans_top",
       "clans_create_join",
@@ -4322,6 +4342,15 @@ bot.on("callback_query", async (q) => {
     const text = "📚 Полезные ресурсы\nВыбери, куда перейти:";
     await editOrSend(chatId, messageId, text, {
       reply_markup: resourcesKeyboard(),
+      parse_mode: null
+    });
+    return;
+  }
+
+  if (dataCb === "leaderboard_menu") {
+    const text = "🏆 Таблицы лидеров\nВыбери нужный рейтинг:";
+    await editOrSend(chatId, messageId, text, {
+      reply_markup: leaderboardMenuKeyboard(),
       parse_mode: null
     });
     return;
@@ -4417,9 +4446,14 @@ if (dataCb === "pvp_ranked") {
 
 if (dataCb === "pvp_leaderboard") {
   const text = buildPvpRatingLeaderboardText(player);
-  await editOrSend(chatId, messageId, text, {
-    reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "pvp_menu" }]] }
-  });
+  const replyMarkup = {
+    inline_keyboard: [
+      [{ text: "⬅️ Таблицы", callback_data: "leaderboard_menu" }],
+      [{ text: "⚔️ PvP меню", callback_data: "pvp_menu" }],
+      [{ text: "🏠 Главное меню", callback_data: "play" }]
+    ]
+  };
+  await editOrSend(chatId, messageId, text, { reply_markup: replyMarkup });
   return;
 }
 
@@ -4431,7 +4465,13 @@ if (dataCb === "clans_menu") {
 
 if (dataCb === "clans_top") {
   const text = buildClanTopText(player);
-  const replyMarkup = { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "clans_menu" }]] };
+  const replyMarkup = {
+    inline_keyboard: [
+      [{ text: "⬅️ Таблицы", callback_data: "leaderboard_menu" }],
+      [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
+      [{ text: "🏠 Главное меню", callback_data: "play" }]
+    ]
+  };
   if (!text) {
     await editOrSend(chatId, messageId, "Пока нет зарегистрированных кланов.", {
       reply_markup: replyMarkup,
@@ -5141,9 +5181,9 @@ if (dataCb === "attack") {
     return;
   }
 
-  if (dataCb === "leaderboard") {
+  if (dataCb === "leaderboard" || dataCb === "leaderboard_survival") {
     const text = buildSurvivalLeaderboardText(player);
-    await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+    await editOrSend(chatId, messageId, text, { reply_markup: leaderboardResultKeyboard() });
     return;
   }
 });
@@ -5819,7 +5859,7 @@ bot.onText(/\/leaderboard/, (msg) => {
   const player = ensurePlayer(msg.from);
   if (!player) return bot.sendMessage(chatId, "Ошибка: не найден профиль. Введите /play.");
   const text = buildSurvivalLeaderboardText(player);
-  bot.sendMessage(chatId, text, { parse_mode: "Markdown" });
+  bot.sendMessage(chatId, text, { parse_mode: "Markdown", reply_markup: leaderboardResultKeyboard() });
 });
 
 
@@ -6078,6 +6118,7 @@ process.on('SIGINT', () => { saveData().finally(() => process.exit(0)); });
 export {
   mainMenuKeyboard,
   lootMenuKeyboard,
+  leaderboardMenuKeyboard,
   clansMenuKeyboard,
   saveData,
   loadData,

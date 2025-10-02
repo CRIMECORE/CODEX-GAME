@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 
 process.env.NODE_ENV = 'test';
-const { mainMenuKeyboard, lootMenuKeyboard, clansMenuKeyboard } = await import('../index.js');
+const { mainMenuKeyboard, lootMenuKeyboard, clansMenuKeyboard, leaderboardMenuKeyboard } = await import('../index.js');
 
 test('main menu contains all expected buttons', () => {
   const keyboard = mainMenuKeyboard();
@@ -10,7 +10,7 @@ test('main menu contains all expected buttons', () => {
   assert.ok(callbacks.includes('hunt'));
   assert.ok(callbacks.includes('cases'));
   assert.ok(callbacks.includes('inventory'));
-  assert.ok(callbacks.includes('leaderboard'));
+  assert.ok(callbacks.includes('leaderboard_menu'));
   assert.ok(callbacks.includes('pvp_menu'));
   assert.ok(callbacks.includes('clans_menu'));
 });
@@ -36,4 +36,16 @@ test('clan menu has expected sections', () => {
   assert.ok(callbacks.includes('clans_battle_info'));
   assert.ok(callbacks.includes('clans_assault_info'));
   assert.ok(callbacks.includes('play'));
+  assert.ok(!callbacks.includes('clans_top'));
+});
+
+test('leaderboard menu groups hunt, PvP and clan rankings', () => {
+  const keyboard = leaderboardMenuKeyboard();
+  const callbacks = keyboard.inline_keyboard.flat().map(btn => btn.callback_data);
+  assert.deepStrictEqual(callbacks, [
+    'leaderboard_survival',
+    'pvp_leaderboard',
+    'clans_top',
+    'play'
+  ]);
 });
