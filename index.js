@@ -3947,7 +3947,7 @@ if (dataCb === "play") {
 // player уже инициализирован выше
 
 
-if (dataCb === "loot_menu") {
+if (dataCb === "cases") {
     await editOrSend(chatId, messageId, "📦 Меню лута — выбери:", { reply_markup: lootMenuKeyboard() });
     return;
 }
@@ -3972,7 +3972,7 @@ if (dataCb === "invite_friend") {
             { text: `🎁 Открыть кейс (${available})`, callback_data: "invite_case_open" }
         ]);
     }
-    keyboard.inline_keyboard.push([{ text: "⬅️ Назад", callback_data: "loot_menu" }]);
+    keyboard.inline_keyboard.push([{ text: "⬅️ Назад", callback_data: "cases" }]);
 
     await editOrSend(chatId, messageId, inviteText, {
         reply_markup: keyboard,
@@ -3985,7 +3985,7 @@ if (dataCb === "invite_case_open") {
     const available = Number(player.inviteCasesAvailable) || 0;
     if (available <= 0) {
         await editOrSend(chatId, messageId, "❌ У вас нет доступных кейсов за приглашения. Пригласите нового игрока по вашей ссылке.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -3993,7 +3993,7 @@ if (dataCb === "invite_case_open") {
     const picked = pickFromSubscriptionPool();
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -4011,7 +4011,7 @@ if (dataCb === "infection_case") {
 
     if (currentInfection < cost) {
         await editOrSend(chatId, messageId, "⚠️ У вас недостаточно очков заражения.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -4019,7 +4019,7 @@ if (dataCb === "infection_case") {
     const picked = pickFromSubscriptionPool();
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -4036,7 +4036,7 @@ if (dataCb === "sign_case") {
 
     if (currentInfection < cost) {
         await editOrSend(chatId, messageId, "⚠️ У вас недостаточно очков заражения.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -4044,7 +4044,7 @@ if (dataCb === "sign_case") {
     const picked = pickRandomSignCaseItem();
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать знак. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -4071,7 +4071,7 @@ if (dataCb === "free_gift") {
                     inline_keyboard: [
                         [{ text: "📢 Открыть канал", url: `https://t.me/${String(FREE_GIFT_CHANNEL).replace(/^@/, "")}` }],
                         [{ text: "✅ Проверить подписку", callback_data: "free_gift" }],
-                        [{ text: "⬅️ Назад", callback_data: "loot_menu" }]
+                        [{ text: "⬅️ Назад", callback_data: "cases" }]
                     ]
                 }});
             return;
@@ -4080,7 +4080,7 @@ if (dataCb === "free_gift") {
         console.error("Ошибка проверки подписки:", err);
         await editOrSend(chatId, messageId,
             `❌ Не удалось проверить подписку. Убедитесь, что канал ${FREE_GIFT_CHANNEL} существует и публичный.`,
-            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] } });
         return;
     }
 
@@ -4091,7 +4091,7 @@ if (dataCb === "free_gift") {
         const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
         await editOrSend(chatId, messageId,
             `⌛ Вы уже забирали бесплатный подарок. Следующий можно получить через ${hours} ч ${minutes} мин.`,
-            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] } });
         return;
     }
 
@@ -4101,7 +4101,7 @@ if (dataCb === "free_gift") {
     const picked = pickFromSubscriptionPool();
 
     if (!picked) {
-        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] } });
         return;
     }
 
@@ -4122,12 +4122,12 @@ if (dataCb === "basic_box") {
     const prices = [{ label: "Базовая коробка", amount: 10000 }]; // 100⭐ × 100
     try {
         await bot.sendInvoice(chatId, title, description, payload, "", startParam, "XTR", prices, {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
     } catch (err) {
         console.error("sendInvoice error:", err);
         await bot.sendMessage(chatId, "Не удалось создать счёт. Попробуйте позже или сообщите администратору бота.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
     }
     return;
@@ -4141,12 +4141,12 @@ if (dataCb === "legend_box") {
     const prices = [{ label: "Легендарная коробка", amount: 59900 }];
     try {
         await bot.sendInvoice(chatId, title, description, payload, "", startParam, "XTR", prices, {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
     } catch (err) {
         console.error("sendInvoice error:", err);
         await bot.sendMessage(chatId, "Не удалось создать счёт. Попробуйте позже или сообщите администратору бота.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
     }
     return;
