@@ -1068,15 +1068,134 @@ function restartBot() {
     }, 3000);
 }
 
+function escMd(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/\_/g, '\\_')
+    .replace(/\*/g, '\\*')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+    .replace(/\~/g, '\\~')
+    .replace(/\`/g, '\\`')
+    .replace(/\>/g, '\\>')
+    .replace(/\#/g, '\\#')
+    .replace(/\+/g, '\\+')
+    .replace(/\-/g, '\\-')
+    .replace(/\=/g, '\\=')
+    .replace(/\|/g, '\\|')
+    .replace(/\{/g, '\\{')
+    .replace(/\}/g, '\\}')
+    .replace(/\./g, '\\.')
+    .replace(/\!/g, '\\!');
+}
+
+function formatPlayerDisplayName(player) {
+  if (!player) return "—";
+  if (player.username) return `@${escMd(player.username)}`;
+  if (player.name) return escMd(player.name);
+  if (player.id) return escMd(player.id);
+  return "—";
+}
+
+function buildPlayerOverview(player) {
+  if (!player) return "";
+  ensurePvpRatingFields(player);
+  const clanName =
+    player.clanId && clans[String(player.clanId)]
+      ? escMd(clans[String(player.clanId)].name)
+      : "—";
+  const hpCurrent = Number.isFinite(player.hp) ? player.hp : 0;
+  const hpMax = Number.isFinite(player.maxHp) ? player.maxHp : hpCurrent;
+  const infection = Number.isFinite(player.infection) ? player.infection : 0;
+  const wins = Number.isFinite(player.pvpWins) ? player.pvpWins : 0;
+  const losses = Number.isFinite(player.pvpLosses) ? player.pvpLosses : 0;
+  const rating = Number.isFinite(player.pvpRating) ? player.pvpRating : 0;
+  const ratingBest = Number.isFinite(player.pvpRatingBest) ? player.pvpRatingBest : rating;
+  const survivalDays = Number.isFinite(player.survivalDays) ? player.survivalDays : 0;
+
+  return [
+    `👤 Игрок: ${formatPlayerDisplayName(player)}`,
+    `❤️ Здоровье: ${hpCurrent}/${hpMax}`,
+    `☣️ Заражение: ${infection}`,
+    `🏆 PvP: ${wins} побед / ${losses} поражений`,
+    `🥇 Рейтинг PvP: ${rating} (рекорд: ${ratingBest})`,
+    `📅 Дней выживания: ${survivalDays}`,
+    `🏰 Клан: ${clanName}`
+  ].join("\n");
+}
+
+function buildMainMenuText(player) {
+  const overview = buildPlayerOverview(player);
+  return overview
+    ? `${overview}\n\n🏠 Главное меню\nВыбери действие ниже.`
+    : "🏠 Главное меню\nВыбери действие ниже.";
+}
+
+function buildStartMessage(player) {
+  const displayName = formatPlayerDisplayName(player);
+  const overview = buildPlayerOverview(player);
+  const intro = displayName !== "—" ? `Привет, ${displayName}!` : "Привет!";
+  return overview
+    ? `${intro}\n\n${overview}\n\nИспользуй кнопки ниже, чтобы продолжить игру.`
+    : `${intro}\nИспользуй кнопки ниже, чтобы продолжить игру.`;
+}
+
+function formatItemLine(label, item, detailBuilder) {
+  if (!item) return `${label}: —`;
+  const name = escMd(item.name || "—");
+  let detailText = "";
+  if (typeof detailBuilder === "function") {
+    const detail = detailBuilder(item);
+    if (detail) {
+      detailText = ` (${escMd(detail)})`;
+    }
+  }
+  return `${label}: ${name}${detailText}`;
+}
+
+function buildInventoryText(player) {
+  if (!player) return "🎒 Инвентарь пуст.";
+  const inv = player.inventory || {};
+  const overview = buildPlayerOverview(player);
+  const lines = [
+    "🎒 Инвентарь",
+    "",
+    overview,
+    "",
+    formatItemLine("🪖 Шлем", inv.helmet, (item) =>
+      typeof item.block !== "undefined" ? `блок ${item.block}%` : null
+    ),
+    formatItemLine("🛡 Броня", inv.armor, (item) =>
+      typeof item.hp !== "undefined" ? `HP +${item.hp}` : null
+    ),
+    formatItemLine("🔫 Оружие", inv.weapon, (item) =>
+      typeof item.dmg !== "undefined" ? `урон +${item.dmg}` : null
+    ),
+    formatItemLine("🧬 Мутация", inv.mutation, (item) => {
+      if (typeof item.crit !== "undefined") {
+        const critPercent = item.crit <= 1 ? Math.round(item.crit * 100) : item.crit;
+        return `crit ${critPercent}%`;
+      }
+      return null;
+    }),
+    formatItemLine("📦 Доп", inv.extra, (item) => item.effect || null),
+    formatItemLine("⚠️ Знак", inv.sign, (item) => describeSignEffect(item))
+  ];
+  return lines.join("\n");
+}
+
 function mainMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🩸 Выйти на охоту", callback_data: "hunt" }],
-      [{ text: "🎰 Лутать тело", callback_data: "loot_menu" }],
+      [{ text: "🎰 Кейсы", callback_data: "cases" }],
       [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
       [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
       [{ text: "⚔️ PvP", callback_data: "pvp_menu" }],
-      [{ text: "🏰 Кланы", callback_data: "clans_menu" }]
+      [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
+      [{ text: "📚 Ресурсы", callback_data: "resources" }]
     ]
   };
 }
@@ -1085,7 +1204,9 @@ function lootMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
-      [{ text: "➕ Бесплатный подарок", callback_data: "invite_friend" }],
+      [{ text: "🧟‍♂️ Притащить тело (бесплатно)", callback_data: "invite_friend" }],
+      [{ text: "Знаки (5000 очков заражения)", callback_data: "sign_case" }],
+      [{ text: "☣️ Зараженное тело (3000 очков заражения)", callback_data: "infection_case" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
@@ -1098,6 +1219,16 @@ function clansMenuKeyboard() {
       [{ text: "Топ кланов", callback_data: "clans_top" }],
       [{ text: "Клановая битва", callback_data: "clans_battle_info" }],
       [{ text: "⚔️ Захват чата", callback_data: "clans_assault_info" }],
+      [{ text: "⬅️ Назад", callback_data: "play" }]
+    ]
+  };
+}
+
+function resourcesKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "📢 Канал", url: "https://t.me/crimecorebotgame" }],
+      [{ text: "💬 Чат", url: "https://t.me/+uHiRhUs7EH0xZDVi" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
@@ -1181,29 +1312,6 @@ async function startBot() {
     console.error("patch editMessageText failed:", e.message);
   }
   // === /Патч безопасного редактирования сообщений ===
-
-function escMd(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/\_/g, '\\_')
-    .replace(/\*/g, '\\*')
-    .replace(/\[/g, '\\[')
-    .replace(/\]/g, '\\]')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)')
-    .replace(/\~/g, '\\~')
-    .replace(/\`/g, '\\`')
-    .replace(/\>/g, '\\>')
-    .replace(/\#/g, '\\#')
-    .replace(/\+/g, '\\+')
-    .replace(/\-/g, '\\-')
-    .replace(/\=/g, '\\=')
-    .replace(/\|/g, '\\|')
-    .replace(/\{/g, '\\{')
-    .replace(/\}/g, '\\}')
-    .replace(/\./g, '\\.')
-    .replace(/\!/g, '\\!');
-}
 
 function findPlayerByIdentifier(identifier) {
   if (!identifier) return null;
@@ -2219,21 +2327,6 @@ async function editOrSend(chatId, messageId, text, options = {}) {
   }
 }
 
-function mainMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🩸 Выйти на охоту", callback_data: "hunt" }],
-      [{ text: "🎰 Лутать тело", callback_data: "loot_menu" }],
-      [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
-      [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
-      [{ text: "⚔️ PvP", callback_data: "pvp_menu" }],
-      [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
-      [{ text: "📢 Канал", url: "https://t.me/crimecorebotgame" }],
-      [{ text: "💬 Чат", url: "https://t.me/+uHiRhUs7EH0xZDVi" }]
-    ]
-  };
-}
-
 function pvpMenuKeyboard() {
   return {
     inline_keyboard: [
@@ -2241,18 +2334,6 @@ function pvpMenuKeyboard() {
       [{ text: "🤖 Поиск противника", callback_data: "pvp_find" }],
       [{ text: "🥇 Рейтинговый PVP", callback_data: "pvp_ranked" }],
       [{ text: "🏆 Таблица лидеров PVP", callback_data: "pvp_leaderboard" }],
-      [{ text: "⬅️ Назад", callback_data: "play" }]
-    ]
-  };
-}
-
-function lootMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
-      [{ text: "🧟‍♂️ Притащить тело (бесплатно)", callback_data: "invite_friend" }],
-      [{ text: "Знаки (5000 очков заражения)", callback_data: "sign_case" }],
-      [{ text: "☣️ Зараженное тело (3000 очков заражения)", callback_data: "infection_case" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
@@ -3617,8 +3698,16 @@ bot.on("callback_query", async (q) => {
     console.error("Group gating error:", e);
   }
   // === /Ограничение кнопок ===
-    let player = ensurePlayer(user);
-// --- Обработчики для кнопок главного меню: PvP и Кланы ---
+  let player = ensurePlayer(user);
+  if (dataCb === "resources") {
+    const text = "📚 Полезные ресурсы\nВыбери, куда перейти:";
+    await editOrSend(chatId, messageId, text, {
+      reply_markup: resourcesKeyboard(),
+      parse_mode: null
+    });
+    return;
+  }
+  // --- Обработчики для кнопок главного меню: PvP и Кланы ---
 if (dataCb === "pvp_request" || dataCb === "pvp_menu") {
   await editOrSend(chatId, messageId, "⚔️ Выберите режим PvP:", { reply_markup: pvpMenuKeyboard() });
   return;
@@ -3845,7 +3934,11 @@ if (dataCb === "play") {
     }
 
     // Отправляем новое меню и сохраняем его message_id
-    const sent = await bot.sendMessage(chatId, "🏠 Главное меню", { reply_markup: mainMenuKeyboard() });
+    const menuText = buildMainMenuText(player);
+    const sent = await bot.sendMessage(chatId, menuText, {
+      reply_markup: mainMenuKeyboard(),
+      parse_mode: "Markdown"
+    });
     player.lastMainMenuMsgId = sent.message_id;
     saveData();
     return;
@@ -3854,8 +3947,8 @@ if (dataCb === "play") {
 // player уже инициализирован выше
 
 
-if (dataCb === "loot_menu") {
-    await editOrSend(chatId, messageId, "📦 Меню лута — выбери:", { reply_markup: lootMenuKeyboard() });
+if (dataCb === "cases") {
+    await editOrSend(chatId, messageId, "📦 Меню кейсов — выбери:", { reply_markup: lootMenuKeyboard() });
     return;
 }
 
@@ -3879,7 +3972,7 @@ if (dataCb === "invite_friend") {
             { text: `🎁 Открыть кейс (${available})`, callback_data: "invite_case_open" }
         ]);
     }
-    keyboard.inline_keyboard.push([{ text: "⬅️ Назад", callback_data: "loot_menu" }]);
+    keyboard.inline_keyboard.push([{ text: "⬅️ Назад", callback_data: "cases" }]);
 
     await editOrSend(chatId, messageId, inviteText, {
         reply_markup: keyboard,
@@ -3892,7 +3985,7 @@ if (dataCb === "invite_case_open") {
     const available = Number(player.inviteCasesAvailable) || 0;
     if (available <= 0) {
         await editOrSend(chatId, messageId, "❌ У вас нет доступных кейсов за приглашения. Пригласите нового игрока по вашей ссылке.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -3900,7 +3993,7 @@ if (dataCb === "invite_case_open") {
     const picked = pickFromSubscriptionPool();
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -3918,7 +4011,7 @@ if (dataCb === "infection_case") {
 
     if (currentInfection < cost) {
         await editOrSend(chatId, messageId, "⚠️ У вас недостаточно очков заражения.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -3926,7 +4019,7 @@ if (dataCb === "infection_case") {
     const picked = pickFromSubscriptionPool();
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -3943,7 +4036,7 @@ if (dataCb === "sign_case") {
 
     if (currentInfection < cost) {
         await editOrSend(chatId, messageId, "⚠️ У вас недостаточно очков заражения.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -3951,7 +4044,7 @@ if (dataCb === "sign_case") {
     const picked = pickRandomSignCaseItem();
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать знак. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
         return;
     }
@@ -3978,7 +4071,7 @@ if (dataCb === "free_gift") {
                     inline_keyboard: [
                         [{ text: "📢 Открыть канал", url: `https://t.me/${String(FREE_GIFT_CHANNEL).replace(/^@/, "")}` }],
                         [{ text: "✅ Проверить подписку", callback_data: "free_gift" }],
-                        [{ text: "⬅️ Назад", callback_data: "loot_menu" }]
+                        [{ text: "⬅️ Назад", callback_data: "cases" }]
                     ]
                 }});
             return;
@@ -3987,7 +4080,7 @@ if (dataCb === "free_gift") {
         console.error("Ошибка проверки подписки:", err);
         await editOrSend(chatId, messageId,
             `❌ Не удалось проверить подписку. Убедитесь, что канал ${FREE_GIFT_CHANNEL} существует и публичный.`,
-            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] } });
         return;
     }
 
@@ -3998,7 +4091,7 @@ if (dataCb === "free_gift") {
         const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
         await editOrSend(chatId, messageId,
             `⌛ Вы уже забирали бесплатный подарок. Следующий можно получить через ${hours} ч ${minutes} мин.`,
-            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] } });
         return;
     }
 
@@ -4008,7 +4101,7 @@ if (dataCb === "free_gift") {
     const picked = pickFromSubscriptionPool();
 
     if (!picked) {
-        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] } });
         return;
     }
 
@@ -4029,12 +4122,12 @@ if (dataCb === "basic_box") {
     const prices = [{ label: "Базовая коробка", amount: 10000 }]; // 100⭐ × 100
     try {
         await bot.sendInvoice(chatId, title, description, payload, "", startParam, "XTR", prices, {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
     } catch (err) {
         console.error("sendInvoice error:", err);
         await bot.sendMessage(chatId, "Не удалось создать счёт. Попробуйте позже или сообщите администратору бота.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
     }
     return;
@@ -4048,12 +4141,12 @@ if (dataCb === "legend_box") {
     const prices = [{ label: "Легендарная коробка", amount: 59900 }];
     try {
         await bot.sendInvoice(chatId, title, description, payload, "", startParam, "XTR", prices, {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
     } catch (err) {
         console.error("sendInvoice error:", err);
         await bot.sendMessage(chatId, "Не удалось создать счёт. Попробуйте позже или сообщите администратору бота.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
         });
     }
     return;
@@ -4507,22 +4600,7 @@ if (dataCb === "attack") {
     const chatId = q.message.chat.id;
     const player = ensurePlayer(q.from);
     ensurePvpRatingFields(player);
-    let clanName = player.clanId && clans[player.clanId] ? clans[player.clanId].name : "—";
-    let inv = player.inventory || {};
-    let text = `🎒 Инвентарь:
-Клан: ${clanName}
-🪖 Шлем: ${inv.helmet?.name || "—"} (${inv.helmet?.block !== undefined ? `блок ${inv.helmet.block}%` : "—"})
-🛡 Броня: ${inv.armor?.name || "—"} (${inv.armor?.hp !== undefined ? `HP +${inv.armor.hp}` : "—"})
-🔫 Оружие: ${inv.weapon?.name || "—"} (${inv.weapon?.dmg !== undefined ? `+${inv.weapon.dmg} урона` : "—"})
-🧬 Мутация: ${inv.mutation?.name || "—"} (${inv.mutation?.crit !== undefined ? `crit ${inv.mutation.crit}%` : "—"})
-📦 Доп: ${inv.extra?.name || "—"} (${inv.extra?.effect || "—"})
-⚠️ Знак: ${inv.sign?.name || "—"} (${describeSignEffect(inv.sign)})
-
-❤️ HP: ${player.hp}/${player.maxHp}
-☣️ Заражение: ${player.infection || 0}
-🏆 PvP: ${player.pvpWins || 0} побед / ${player.pvpLosses || 0} поражений
-🥇 Рейтинг PvP: ${player.pvpRating} (рекорд: ${player.pvpRatingBest})`;
-
+    const text = buildInventoryText(player);
     const img = await generateInventoryImage(player);
     const kb = { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] };
     if (img) {
@@ -4681,7 +4759,8 @@ bot.onText(/\/play/, (msg) => {
   const player = ensurePlayer(msg.from);
   if (!player) return bot.sendMessage(msg.chat.id, "Ошибка регистрации. Попробуйте /start.");
   applyArmorHelmetBonuses(player);
-  editOrSend(msg.chat.id, null, `Выберите действие:`, { reply_markup: mainMenuKeyboard() });
+  const menuText = buildMainMenuText(player);
+  editOrSend(msg.chat.id, null, menuText, { reply_markup: mainMenuKeyboard() });
 });
 
 // /report
@@ -4795,17 +4874,9 @@ bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
   }
 
   applyArmorHelmetBonuses(player);
-  const inv = player.inventory;
-  const armorLine = inv.armor ? `${inv.armor.name} (+${inv.armor.hp} HP)` : "—";
-  const weaponLine = inv.weapon ? `${inv.weapon.name} (+${inv.weapon.dmg} dmg)` : "—";
-  const helmetLine = inv.helmet ? `${inv.helmet.name} (блок ${inv.helmet.block}%)` : "—";
-  const mutLine = inv.mutation ? `${inv.mutation.name} (crit ${Math.round((inv.mutation.crit || 0) * 100)}%)` : "—";
+  const startText = buildStartMessage(player);
   await bot
-    .sendMessage(
-      msg.chat.id,
-      `Привет, @${player.username}!\n❤️ HP: ${player.hp}/${player.maxHp}\n🛡 Броня: ${armorLine}\n🔫 Оружие: ${weaponLine}\n🪖 Шлем: ${helmetLine}\n🧬 Мутация: ${mutLine}`,
-      { reply_markup: mainMenuKeyboard() }
-    )
+    .sendMessage(msg.chat.id, startText, { reply_markup: mainMenuKeyboard(), parse_mode: "Markdown" })
     .catch(() => {});
 });
 
@@ -5238,22 +5309,7 @@ bot.onText(/\/inventory/, async (msg) => {
   const player = ensurePlayer(msg.from);
   if (!player) return bot.sendMessage(chatId, "Ошибка: нет профиля");
   ensurePvpRatingFields(player);
-
-  let clanName = player.clanId && clans[player.clanId] ? clans[player.clanId].name : "—";
-  let inv = player.inventory || {};
-  let text = `🎒 Инвентарь:
-Клан: ${clanName}
-🪖 Шлем: ${inv.helmet?.name || "—"} (${inv.helmet?.block || "—"})
-🛡 Броня: ${inv.armor?.name || "—"} (${inv.armor?.hp || "—"})
-🔫 Оружие: ${inv.weapon?.name || "—"} (${inv.weapon?.dmg || "—"})
-🧬 Мутация: ${inv.mutation?.name || "—"} (${inv.mutation?.crit || "—"})
-📦 Доп: ${inv.extra?.name || "—"} (${inv.extra?.effect || "—"})
-
-❤️ HP: ${player.hp}/${player.maxHp}
-☣️ Заражение: ${player.infection || 0}
-🏆 PvP: ${player.pvpWins || 0} побед / ${player.pvpLosses || 0} поражений
-🥇 Рейтинг PvP: ${player.pvpRating} (рекорд: ${player.pvpRatingBest})`;
-
+  const text = buildInventoryText(player);
   const img = await generateInventoryImage(player);
   const kb = { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] };
   if (img) {

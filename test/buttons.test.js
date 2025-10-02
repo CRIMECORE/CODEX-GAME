@@ -8,17 +8,23 @@ test('main menu contains all expected buttons', () => {
   const keyboard = mainMenuKeyboard();
   const callbacks = keyboard.inline_keyboard.flat().map(btn => btn.callback_data);
   assert.ok(callbacks.includes('hunt'));
-  assert.ok(callbacks.includes('loot_menu'));
+  assert.ok(callbacks.includes('cases'));
   assert.ok(callbacks.includes('inventory'));
   assert.ok(callbacks.includes('leaderboard'));
   assert.ok(callbacks.includes('pvp_menu'));
   assert.ok(callbacks.includes('clans_menu'));
 });
 
-test('loot menu contains free gift and back buttons', () => {
+test('loot menu contains expected reward options', () => {
   const keyboard = lootMenuKeyboard();
   const callbacks = keyboard.inline_keyboard.flat().map(btn => btn.callback_data);
-  assert.deepStrictEqual(callbacks, ['free_gift', 'invite_friend', 'play']);
+  assert.deepStrictEqual(callbacks, [
+    'free_gift',
+    'invite_friend',
+    'sign_case',
+    'infection_case',
+    'play'
+  ]);
 });
 
 test('clan menu has expected sections', () => {
