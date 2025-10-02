@@ -193,6 +193,10 @@ export async function clearBotStateTable() {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TOKEN = process.env.TELEGRAM_TOKEN || process.env.TOKEN || process.env.BOT_TOKEN;
+const DONATION_CONTACT =
+  typeof process !== 'undefined' && process.env?.DONATION_CONTACT
+    ? process.env.DONATION_CONTACT
+    : '@imfromcrimecorebitches';
 
 const ITEM_IMAGE_MAP = getItemImageMap();
 const ITEM_DEFINITIONS_BY_KIND = getAllItemDefinitions();
@@ -2057,8 +2061,6 @@ async function handleCaseOpen(caseId, context) {
       });
   }
 }
-
-const DONATION_CONTACT = '@imfromcrimecorebitches';
 
 const storyEvents = [
   {
