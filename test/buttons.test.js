@@ -15,16 +15,10 @@ test('main menu contains all expected buttons', () => {
   assert.ok(callbacks.includes('clans_menu'));
 });
 
-test('loot menu contains expected reward options', () => {
+test('loot menu contains free gift and back buttons', () => {
   const keyboard = lootMenuKeyboard();
   const callbacks = keyboard.inline_keyboard.flat().map(btn => btn.callback_data);
-  assert.deepStrictEqual(callbacks, [
-    'free_gift',
-    'invite_friend',
-    'sign_case',
-    'infection_case',
-    'play'
-  ]);
+  assert.deepStrictEqual(callbacks, ['free_gift', 'invite_friend', 'play']);
 });
 
 test('clan menu has expected sections', () => {
