@@ -149,7 +149,9 @@ import {
   signItems,
   getItemImageMap,
   getAllItemDefinitions,
-  normalizeItemName
+  normalizeItemName,
+  CASE_TYPES,
+  getCaseItems
 } from './lib/items.js';
 
 import pool, { initializeDatabase } from './lib/db.js';
@@ -231,6 +233,11 @@ const ITEM_KIND_LABELS = {
 function getItemKindLabel(kind) {
   if (!kind) return null;
   return ITEM_KIND_LABELS[String(kind)] || null;
+}
+
+function capitalizeFirst(str) {
+  if (!str) return '';
+  return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
 function buildItemTypeText(item) {
@@ -963,6 +970,7 @@ function ensurePlayer(user) {
       hp: 100,
       maxHp: 100,
       infection: 0,
+      crimecoins: 0,
       survivalDays: 0,
       bestSurvivalDays: 0,
       clanId: null,
@@ -997,6 +1005,7 @@ function ensurePlayer(user) {
     if (!Number.isFinite(p.survivalDays)) p.survivalDays = 0;
     if (!Number.isFinite(p.bestSurvivalDays)) p.bestSurvivalDays = p.survivalDays;
     if (p.bestSurvivalDays < p.survivalDays) p.bestSurvivalDays = p.survivalDays;
+    if (!Number.isFinite(p.crimecoins)) p.crimecoins = 0;
     ensurePvpRatingFields(p);
     if (typeof p.inviteCasesAvailable !== 'number' || !Number.isFinite(p.inviteCasesAvailable)) {
       p.inviteCasesAvailable = 0;
@@ -1109,6 +1118,7 @@ function buildPlayerOverview(player) {
   const hpCurrent = Number.isFinite(player.hp) ? player.hp : 0;
   const hpMax = Number.isFinite(player.maxHp) ? player.maxHp : hpCurrent;
   const infection = Number.isFinite(player.infection) ? player.infection : 0;
+  const crimecoins = Number.isFinite(player.crimecoins) ? player.crimecoins : 0;
   const wins = Number.isFinite(player.pvpWins) ? player.pvpWins : 0;
   const losses = Number.isFinite(player.pvpLosses) ? player.pvpLosses : 0;
   const rating = Number.isFinite(player.pvpRating) ? player.pvpRating : 0;
@@ -1119,6 +1129,7 @@ function buildPlayerOverview(player) {
     `👤 Игрок: ${formatPlayerDisplayName(player)}`,
     `❤️ Здоровье: ${hpCurrent}/${hpMax}`,
     `☣️ Заражение: ${infection}`,
+    `🪙 CRIMECOINS: ${crimecoins}`,
     `🏆 PvP: ${wins} побед / ${losses} поражений`,
     `🥇 Рейтинг PvP: ${rating} (рекорд: ${ratingBest})`,
     `📅 Дней выживания: ${survivalDays}`,
@@ -1203,10 +1214,30 @@ function mainMenuKeyboard() {
 function lootMenuKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "🆓 Бесплатный подарок", callback_data: "free_gift" }],
-      [{ text: "🧟‍♂️ Притащить тело (бесплатно)", callback_data: "invite_friend" }],
-      [{ text: "Знаки (5000 очков заражения)", callback_data: "sign_case" }],
-      [{ text: "☣️ Зараженное тело (3000 очков заражения)", callback_data: "infection_case" }],
+      [
+        { text: "🆓 Бесплатный подарок", callback_data: "free_gift" },
+        { text: "👀 Предметы", callback_data: "preview_case:free_gift" }
+      ],
+      [
+        { text: "🧟‍♂️ Притащить тело", callback_data: "invite_friend" },
+        { text: "👀 Предметы", callback_data: "preview_case:invite" }
+      ],
+      [
+        { text: "Знаки (5000 очков заражения)", callback_data: "sign_case" },
+        { text: "👀 Предметы", callback_data: "preview_case:sign" }
+      ],
+      [
+        { text: "☣️ Зараженное тело (3000 очков заражения)", callback_data: "infection_case" },
+        { text: "👀 Предметы", callback_data: "preview_case:infection" }
+      ],
+      [
+        { text: "📦 Базовая коробка (100⭐)", callback_data: "basic_box" },
+        { text: "👀 Предметы", callback_data: "preview_case:basic" }
+      ],
+      [
+        { text: "💎 Легендарная коробка (599⭐)", callback_data: "legend_box" },
+        { text: "👀 Предметы", callback_data: "preview_case:legend" }
+      ],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
@@ -1608,10 +1639,7 @@ function describeSignEffect(sign) {
 }
 
 function pickRandomSignCaseItem() {
-  const pool = signItems.filter((item) => item.caseEligible !== false);
-  if (pool.length === 0) return null;
-  const picked = pool[Math.floor(Math.random() * pool.length)];
-  return picked ? { ...picked } : null;
+  return pickCaseItem(CASE_TYPES.SIGN, { includeSigns: true });
 }
 
 function getFinalSignTemplate() {
@@ -1684,40 +1712,16 @@ function tryUseSignProtectionPve(player, sign) {
 const PROVIDER_TOKEN = "444717:AAP7lzPEP4Kw558oCJzmV3yb6S5wqMBfGbi"; // <- твой CryptoPay token (или "" если хочешь)
 const FREE_GIFT_CHANNEL = "@SL4VE666"; // канал для бесплатного дропа
 
-// список легендарных предметов (имена — из твоего файла). 
-// Мы потом найдём объекты в существующих массивах по имени (поиск нечувствителен к регистру).
-const LEGENDARY_NAMES = [
-  "Броня хай-тек",
-  "Броня скелет",
-  "Бронежилет военных",
-  "Бронежилет CRIMECORE",
-  "Бронежилет мутации",
-  "Бронежилет хим. вещества",
-  "Бронежилет протез",
-  "Шлем стальной",
-  "Шлем ночного видения",
-  "Шлем пила",
-  "Зубастик",
-  "Клешни",
-  "Бог",
-  "Катана",
-  "UMP",
-  "Uzi",
-  "Охотничье ружьё",
-  "Дробовик",
-  "Двустволка",
-  "Famas",
-  "M4",
-  "Ak-47",
-  "SCAR-L",
-  "ВСК-94",
-  "VSS",
-  "Гранатомет",
-  "Подопытный",
-  "AWP",
-  "Военный шлем",
-  "Шлем CRIMECORE"
-];
+const CASE_LABELS = {
+  [CASE_TYPES.FREE_GIFT]: "Бесплатный подарок",
+  [CASE_TYPES.INVITE]: "Кейс за приглашение друга",
+  [CASE_TYPES.INFECTION]: "Зараженное тело",
+  [CASE_TYPES.SIGN]: "Знаки",
+  [CASE_TYPES.BASIC]: "Базовая коробка удачи",
+  [CASE_TYPES.LEGEND]: "Легендарная коробка удачи"
+};
+
+const DONATION_CONTACT = '@imfromcrimecorebitches';
 
 const storyEvents = [
   {
@@ -2339,23 +2343,91 @@ function pvpMenuKeyboard() {
   };
 }
 
-function buildSubscriptionDropPool() {
-  return [
-    ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
-    ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
-    ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
-    ...extraItems.map(it => ({ ...it, kind: "extra" })),
-    ...armorItems.map(it => ({ ...it, kind: "armor" }))
-  ];
+function getCaseLabel(caseId) {
+  return CASE_LABELS[caseId] || 'кейс';
 }
 
-function pickFromSubscriptionPool() {
-  const dropPool = buildSubscriptionDropPool();
-  let picked = pickByChance(dropPool);
-  if (!picked && dropPool.length > 0) {
-    picked = dropPool[Math.floor(Math.random() * dropPool.length)];
+function buildCaseDropPool(caseType, { includeSigns = false } = {}) {
+  return getCaseItems(caseType, { includeSigns });
+}
+
+function pickCaseItem(caseType, { includeSigns = false } = {}) {
+  const dropPool = buildCaseDropPool(caseType, { includeSigns });
+  if (!Array.isArray(dropPool) || dropPool.length === 0) {
+    return null;
   }
-  return picked || null;
+
+  if (caseType === CASE_TYPES.SIGN || caseType === CASE_TYPES.LEGEND) {
+    const idx = Math.floor(Math.random() * dropPool.length);
+    const selected = dropPool[idx];
+    return selected ? { ...selected } : null;
+  }
+
+  let picked = pickByChance(dropPool);
+  if (!picked) {
+    const fallback = dropPool[Math.floor(Math.random() * dropPool.length)];
+    picked = fallback || null;
+  }
+  return picked ? { ...picked } : null;
+}
+
+function pickFromSubscriptionPool(caseType = CASE_TYPES.FREE_GIFT) {
+  return pickCaseItem(caseType);
+}
+
+const CASE_PREVIEW_KIND_ORDER = ['weapon', 'armor', 'helmet', 'mutation', 'extra', 'sign'];
+
+function formatCasePreviewLine(item) {
+  const rarity = resolveItemRarity(item);
+  const rarityEmoji = rarity && rarity.key ? ITEM_RARITY_EMOJI[rarity.key] || '' : '';
+  const rarityLabel = rarity && rarity.label ? rarity.label : '';
+  const emojiPart = rarityEmoji ? `${rarityEmoji} ` : '';
+  const namePart = `*${escMd(item.name)}*`;
+  const rarityPart = rarityLabel ? ` (${rarityLabel})` : '';
+  return `• ${emojiPart}${namePart}${rarityPart}`;
+}
+
+function buildCasePreviewText(caseId) {
+  const label = getCaseLabel(caseId);
+  const includeSigns = caseId === CASE_TYPES.SIGN;
+  const items = getCaseItems(caseId, { includeSigns });
+
+  const header = `👀 *Предметы кейса «${escMd(label)}»*`;
+  if (!items || items.length === 0) {
+    return `${header}\n\nПока список пуст.`;
+  }
+
+  const byKind = new Map();
+  for (const item of items) {
+    const kind = item.kind || 'other';
+    if (!byKind.has(kind)) byKind.set(kind, []);
+    byKind.get(kind).push(item);
+  }
+
+  const sections = [];
+  for (const kind of CASE_PREVIEW_KIND_ORDER) {
+    if (!byKind.has(kind)) continue;
+    const list = byKind.get(kind).slice().sort((a, b) => {
+      const nameA = String(a.name || '').toLocaleLowerCase('ru');
+      const nameB = String(b.name || '').toLocaleLowerCase('ru');
+      return nameA.localeCompare(nameB, 'ru');
+    });
+    const kindLabel = getItemKindLabel(kind) || kind;
+    const lines = list.map((item) => formatCasePreviewLine(item));
+    sections.push(`*${escMd(capitalizeFirst(kindLabel))}*\n${lines.join('\n')}`);
+  }
+
+  const body = sections.join('\n\n');
+  let footer = '';
+  if (caseId === CASE_TYPES.LEGEND) {
+    footer = '\n\nℹ️ Все предметы из легендарного кейса выпадают с равной вероятностью.';
+  } else if (caseId === CASE_TYPES.SIGN) {
+    footer = '\n\nℹ️ Все знаки из этого кейса выпадают с одинаковым шансом.';
+  } else {
+    footer = '\n\nℹ️ Чем выше редкость предмета, тем ниже шанс его получить.';
+  }
+
+  return body ? `${header}\n\n${body}${footer}` : `${header}\n\nℹ️ Этот кейс пока не настроен.`;
 }
 
 function findItemByName(name) {
@@ -3952,6 +4024,15 @@ if (dataCb === "cases") {
     return;
 }
 
+if (typeof dataCb === 'string' && dataCb.startsWith('preview_case:')) {
+    const caseId = dataCb.split(':')[1] || '';
+    const previewText = buildCasePreviewText(caseId);
+    await editOrSend(chatId, messageId, previewText, {
+        reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
+    });
+    return;
+}
+
 if (dataCb === "invite_friend") {
     const referralLink = `https://t.me/CRIMECOREgameBOT?start=ref_${player.id}`;
     const shareText = encodeURIComponent(`заходи в первую РПГ телеграм игру CRIMECORE!!! ${referralLink}`);
@@ -3990,7 +4071,7 @@ if (dataCb === "invite_case_open") {
         return;
     }
 
-    const picked = pickFromSubscriptionPool();
+    const picked = pickFromSubscriptionPool(CASE_TYPES.INVITE);
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
             reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
@@ -4016,7 +4097,7 @@ if (dataCb === "infection_case") {
         return;
     }
 
-    const picked = pickFromSubscriptionPool();
+    const picked = pickFromSubscriptionPool(CASE_TYPES.INFECTION);
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
             reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
@@ -4098,7 +4179,7 @@ if (dataCb === "free_gift") {
     // -------------------------
     // Собираем пул предметов (всё из твоих массивов)
     // -------------------------
-    const picked = pickFromSubscriptionPool();
+    const picked = pickFromSubscriptionPool(CASE_TYPES.FREE_GIFT);
 
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] } });
@@ -4745,11 +4826,77 @@ bot.onText(/^\/points\s+(.+)/i, async (msg, match) => {
   }
 });
 
+bot.onText(/^\/crimecoins(?:@\w+)?\s+(.+)/i, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const fromId = msg.from.id;
+
+  if (!isAdmin(fromId)) {
+    await bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+    return;
+  }
+
+  const argsText = match && match[1] ? match[1].trim() : '';
+  if (!argsText) {
+    await bot.sendMessage(chatId, "Использование: /crimecoins <игрок> <количество>");
+    return;
+  }
+
+  const parts = argsText.split(/\s+/);
+  if (parts.length < 2) {
+    await bot.sendMessage(chatId, "Укажите игрока и количество CRIMECOINS. Пример: /crimecoins @username 50");
+    return;
+  }
+
+  const amountRaw = parts.pop();
+  const amount = Number(amountRaw);
+  if (!Number.isFinite(amount)) {
+    await bot.sendMessage(chatId, "❌ Некорректное количество CRIMECOINS.");
+    return;
+  }
+
+  const targetIdentifier = parts.join(' ');
+  const targetPlayer = findPlayerByIdentifier(targetIdentifier);
+  if (!targetPlayer) {
+    await bot.sendMessage(chatId, "❌ Игрок не найден.");
+    return;
+  }
+
+  const before = Number.isFinite(targetPlayer.crimecoins) ? targetPlayer.crimecoins : 0;
+  const after = before + amount;
+  targetPlayer.crimecoins = after;
+  saveData();
+
+  const absAmount = Math.abs(amount);
+  const action = amount >= 0 ? 'начислено' : 'списано';
+  const targetDisplay = targetPlayer.name || targetPlayer.username || targetPlayer.id;
+  await bot.sendMessage(
+    chatId,
+    `✅ Игроку ${targetDisplay} ${action} ${absAmount} 🪙 CRIMECOINS. Текущий баланс: ${after}. По пожертвованиям обращайтесь к ${DONATION_CONTACT}.`
+  );
+
+  const contactText = `По вопросам обращайтесь к ${DONATION_CONTACT}.`;
+  if (amount >= 0) {
+    await bot
+      .sendMessage(
+        targetPlayer.id,
+        `🪙 Вам начислено ${absAmount} CRIMECOINS за благотворительное пожертвование! Спасибо за поддержку проекта. ${contactText}`
+      )
+      .catch(() => {});
+  } else {
+    await bot
+      .sendMessage(
+        targetPlayer.id,
+        `⚠️ Администратор скорректировал ваш баланс на ${absAmount} CRIMECOINS. Текущий баланс: ${after}. ${contactText}`
+      )
+      .catch(() => {});
+  }
+});
+
 // Add this helper function to check admin rights
 function isAdmin(userId) {
   // Add your admin IDs here or load from environment
-  const adminIds = process.env.ADMIN_IDS ? 
-    process.env.ADMIN_IDS.split(',').map(Number) : 
+  const adminIds = process.env.ADMIN_IDS ?
+    process.env.ADMIN_IDS.split(',').map(Number) :
     []; // Add default admin IDs if needed
   return adminIds.includes(Number(userId));
 }
@@ -4898,28 +5045,22 @@ bot.on("message", async (msg) => {
     if (!player) return;
 
     if (payload === "loot_basic_100") {
-      const dropPool = [
-        ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
-        ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
-        ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
-        ...extraItems.map(it => ({ ...it, kind: "extra" })),
-        ...armorItems.map(it => ({ ...it, kind: "armor" }))
-      ];
-      const picked = pickByChance(dropPool);
-      if (!picked) {
+      const item = pickCaseItem(CASE_TYPES.BASIC);
+      if (!item) {
         await bot.sendMessage(chatId, "Произошла ошибка при генерации предмета. Свяжитесь с админом.");
         return;
       }
-      await giveItemToPlayer(chatId, player, picked, "📦 Вы открыли Базовую коробку удачи!");
+      await giveItemToPlayer(chatId, player, item, "📦 Вы открыли Базовую коробку удачи!");
       saveData();
       return;
     }
 
     if (payload === "loot_legend_599") {
-      const idx = Math.floor(Math.random() * LEGENDARY_NAMES.length);
-      const name = LEGENDARY_NAMES[idx];
-      const matched = findItemByName(name);
-      const item = matched ? matched : { name: name, kind: "extra" };
+      const item = pickCaseItem(CASE_TYPES.LEGEND);
+      if (!item) {
+        await bot.sendMessage(chatId, "Произошла ошибка при генерации предмета. Свяжитесь с админом.");
+        return;
+      }
       await giveItemToPlayer(chatId, player, item, "💎 Вы открыли Легендарную коробку удачи!");
       saveData();
       return;
@@ -4949,28 +5090,22 @@ bot.on("message", async (msg) => {
     if (!player) return;
 
     if (payload === "loot_basic_100") {
-      const dropPool = [
-        ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
-        ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
-        ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
-        ...extraItems.map(it => ({ ...it, kind: "extra" })),
-        ...armorItems.map(it => ({ ...it, kind: "armor" }))
-      ];
-      const picked = pickByChance(dropPool);
-      if (!picked) {
+      const item = pickCaseItem(CASE_TYPES.BASIC);
+      if (!item) {
         await bot.sendMessage(chatId, "Произошла ошибка при генерации предмета. Свяжитесь с админом.");
         return;
       }
-      await giveItemToPlayer(chatId, player, picked, "📦 Вы открыли Базовую коробку удачи!");
+      await giveItemToPlayer(chatId, player, item, "📦 Вы открыли Базовую коробку удачи!");
       saveData();
       return;
     }
 
     if (payload === "loot_legend_599") {
-      const idx = Math.floor(Math.random() * LEGENDARY_NAMES.length);
-      const name = LEGENDARY_NAMES[idx];
-      const matched = findItemByName(name);
-      const item = matched ? matched : { name: name, kind: "extra" };
+      const item = pickCaseItem(CASE_TYPES.LEGEND);
+      if (!item) {
+        await bot.sendMessage(chatId, "Произошла ошибка при генерации предмета. Свяжитесь с админом.");
+        return;
+      }
       await giveItemToPlayer(chatId, player, item, "💎 Вы открыли Легендарную коробку удачи!");
       saveData();
       return;
