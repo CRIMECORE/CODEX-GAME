@@ -3948,7 +3948,7 @@ if (dataCb === "play") {
 
 
 if (dataCb === "cases") {
-    await editOrSend(chatId, messageId, "📦 Меню лута — выбери:", { reply_markup: lootMenuKeyboard() });
+    await editOrSend(chatId, messageId, "📦 Меню кейсов — выбери:", { reply_markup: lootMenuKeyboard() });
     return;
 }
 
