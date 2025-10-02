@@ -1337,8 +1337,7 @@ function leaderboardMenuKeyboard() {
 function leaderboardResultKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "⬅️ Назад", callback_data: "leaderboard_menu" }],
-      [{ text: "🏠 Главное меню", callback_data: "play" }]
+      [{ text: "⬅️ Назад", callback_data: "leaderboard_menu" }]
     ]
   };
 }
@@ -4446,14 +4445,7 @@ if (dataCb === "pvp_ranked") {
 
 if (dataCb === "pvp_leaderboard") {
   const text = buildPvpRatingLeaderboardText(player);
-  const replyMarkup = {
-    inline_keyboard: [
-      [{ text: "⬅️ Таблицы", callback_data: "leaderboard_menu" }],
-      [{ text: "⚔️ PvP меню", callback_data: "pvp_menu" }],
-      [{ text: "🏠 Главное меню", callback_data: "play" }]
-    ]
-  };
-  await editOrSend(chatId, messageId, text, { reply_markup: replyMarkup });
+  await editOrSend(chatId, messageId, text, { reply_markup: leaderboardResultKeyboard() });
   return;
 }
 
@@ -4465,13 +4457,7 @@ if (dataCb === "clans_menu") {
 
 if (dataCb === "clans_top") {
   const text = buildClanTopText(player);
-  const replyMarkup = {
-    inline_keyboard: [
-      [{ text: "⬅️ Таблицы", callback_data: "leaderboard_menu" }],
-      [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
-      [{ text: "🏠 Главное меню", callback_data: "play" }]
-    ]
-  };
+  const replyMarkup = leaderboardResultKeyboard();
   if (!text) {
     await editOrSend(chatId, messageId, "Пока нет зарегистрированных кланов.", {
       reply_markup: replyMarkup,
