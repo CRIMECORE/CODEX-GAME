@@ -234,7 +234,8 @@ for (const [kind, definitions] of Object.entries(ITEM_DEFINITIONS_BY_KIND)) {
 const ITEM_RARITY_EMOJI = {
   very_rare: '💠',
   rare: '🔷',
-  common: '⚪️'
+  common: '⚪️',
+  legendary: '⚜️'
 };
 
 const ITEM_KIND_LABELS = {
