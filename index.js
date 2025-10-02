@@ -148,6 +148,7 @@ import {
   extraItems,
   signItems,
   getItemImageMap,
+  getAllItemDefinitions,
   normalizeItemName
 } from './lib/items.js';
 
@@ -192,6 +193,31 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN = process.env.TELEGRAM_TOKEN || process.env.TOKEN || process.env.BOT_TOKEN;
 
 const ITEM_IMAGE_MAP = getItemImageMap();
+const ITEM_DEFINITIONS_BY_KIND = getAllItemDefinitions();
+
+const ITEM_RARITY_LOOKUP_BY_KIND = new Map();
+const ITEM_RARITY_LOOKUP_BY_NAME = new Map();
+
+for (const [kind, definitions] of Object.entries(ITEM_DEFINITIONS_BY_KIND)) {
+  for (const def of definitions) {
+    if (!def || !def.name) continue;
+    const normalized = normalizeItemName(def.name);
+    const rarityMeta = {
+      label: def.rarity || null,
+      key: def.rarityKey || null
+    };
+    ITEM_RARITY_LOOKUP_BY_KIND.set(`${kind}:${normalized}`, rarityMeta);
+    if (!ITEM_RARITY_LOOKUP_BY_NAME.has(normalized)) {
+      ITEM_RARITY_LOOKUP_BY_NAME.set(normalized, rarityMeta);
+    }
+  }
+}
+
+const ITEM_RARITY_EMOJI = {
+  very_rare: '💠',
+  rare: '🔷',
+  common: '⚪️'
+};
 
 const ITEM_KIND_LABELS = {
   armor: "броня",
@@ -213,10 +239,43 @@ function buildItemTypeText(item) {
   return kindLabel ? `\n🏷 Тип предмета: ${kindLabel}.` : "";
 }
 
+function resolveItemRarity(item) {
+  if (!item) return null;
+  const label = item.rarity || null;
+  const key = item.rarityKey || null;
+  if (label) {
+    return { label, key };
+  }
+
+  if (!item.name) return null;
+  const normalizedName = normalizeItemName(item.name);
+
+  if (item.kind) {
+    const lookupKey = `${item.kind}:${normalizedName}`;
+    if (ITEM_RARITY_LOOKUP_BY_KIND.has(lookupKey)) {
+      return ITEM_RARITY_LOOKUP_BY_KIND.get(lookupKey);
+    }
+  }
+
+  if (ITEM_RARITY_LOOKUP_BY_NAME.has(normalizedName)) {
+    return ITEM_RARITY_LOOKUP_BY_NAME.get(normalizedName);
+  }
+
+  return null;
+}
+
+function buildItemRarityText(item) {
+  const rarity = resolveItemRarity(item);
+  if (!rarity || !rarity.label) return "";
+  const emoji = rarity.key ? ITEM_RARITY_EMOJI[rarity.key] || '⭐️' : '⭐️';
+  return `\n${emoji} Редкость: ${rarity.label}.`;
+}
+
 function formatItemRewardMessage(item) {
   if (!item) return "";
   let text = `🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.`;
   text += buildItemTypeText(item);
+  text += buildItemRarityText(item);
   if (item.kind === "sign") {
     text += `\n✨ Эффект: ${describeSignEffect(item)}`;
   }
@@ -227,6 +286,7 @@ function formatDropSummary(item) {
   if (!item) return "";
   let text = `🎁 Выпало: ${item.name}`;
   text += buildItemTypeText(item);
+  text += buildItemRarityText(item);
   if (item.kind === "sign") {
     text += `\n✨ Эффект: ${describeSignEffect(item)}`;
   }
