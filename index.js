@@ -2444,7 +2444,7 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
   const baseCaption = `⚠️ *Опасное событие*: ${escMd(scenario.title)} — ${escMd(branch.name)}`;
 
   if (player.hp <= 0) {
-    player.infection = Math.max(0, (player.infection || 0) - 400);
+    player.infection = Math.max(0, (player.infection || 0) - 100);
     resetSurvivalProgress(player);
     applyArmorHelmetBonuses(player);
     player.hp = player.maxHp;
@@ -2456,7 +2456,7 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
       "",
       `${escMd(scenario.failure)}`,
       "",
-      "☣️ Ты потерял 400 заражения.",
+      "☣️ Ты потерял 100 заражения.",
       "🗓 Дни выживания обнулились."
     ].filter(Boolean).join("\n");
     await bot.editMessageCaption(failureText, {
@@ -2469,7 +2469,7 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
   }
 
   if (Math.random() < exitChance) {
-    player.infection = (player.infection || 0) + 400;
+    player.infection = (player.infection || 0) + 100;
     player.currentDanger = null;
     player.currentDangerMsgId = null;
     let successText = [
@@ -2477,7 +2477,7 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
       "",
       `${escMd(scenario.success)}`,
       "",
-      "☣️ Ты получил 400 заражения."
+      "☣️ Ты получил 100 заражения."
     ].join("\n");
     const survivalMessage = grantSurvivalDay(player);
     if (survivalMessage) {
