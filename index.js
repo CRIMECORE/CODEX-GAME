@@ -1214,30 +1214,12 @@ function mainMenuKeyboard() {
 function lootMenuKeyboard() {
   return {
     inline_keyboard: [
-      [
-        { text: "🆓 Бесплатный подарок", callback_data: "free_gift" },
-        { text: "👀 Предметы", callback_data: "preview_case:free_gift" }
-      ],
-      [
-        { text: "🧟‍♂️ Притащить тело", callback_data: "invite_friend" },
-        { text: "👀 Предметы", callback_data: "preview_case:invite" }
-      ],
-      [
-        { text: "Знаки (5000 очков заражения)", callback_data: "sign_case" },
-        { text: "👀 Предметы", callback_data: "preview_case:sign" }
-      ],
-      [
-        { text: "☣️ Зараженное тело (3000 очков заражения)", callback_data: "infection_case" },
-        { text: "👀 Предметы", callback_data: "preview_case:infection" }
-      ],
-      [
-        { text: "📦 Базовая коробка (100⭐)", callback_data: "basic_box" },
-        { text: "👀 Предметы", callback_data: "preview_case:basic" }
-      ],
-      [
-        { text: "💎 Легендарная коробка (599⭐)", callback_data: "legend_box" },
-        { text: "👀 Предметы", callback_data: "preview_case:legend" }
-      ],
+      [{ text: "🆓 Бесплатный подарок", callback_data: "case_info:free_gift" }],
+      [{ text: "🧟‍♂️ Притащить тело", callback_data: "case_info:invite" }],
+      [{ text: "Знаки (5000 очков заражения)", callback_data: "case_info:sign" }],
+      [{ text: "☣️ Зараженное тело (3000 очков заражения)", callback_data: "case_info:infection" }],
+      [{ text: "📦 Базовая коробка (100 CRIMECOINS)", callback_data: "case_info:basic" }],
+      [{ text: "💎 Легендарная коробка (599 CRIMECOINS)", callback_data: "case_info:legend" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
   };
@@ -1709,7 +1691,6 @@ function tryUseSignProtectionPve(player, sign) {
 }
 
 // ------------------ Loot / Payments config ------------------
-const PROVIDER_TOKEN = "444717:AAP7lzPEP4Kw558oCJzmV3yb6S5wqMBfGbi"; // <- твой CryptoPay token (или "" если хочешь)
 const FREE_GIFT_CHANNEL = "@SL4VE666"; // канал для бесплатного дропа
 
 const CASE_LABELS = {
@@ -1720,6 +1701,316 @@ const CASE_LABELS = {
   [CASE_TYPES.BASIC]: "Базовая коробка удачи",
   [CASE_TYPES.LEGEND]: "Легендарная коробка удачи"
 };
+
+const FREE_GIFT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+const CASE_COSTS = {
+  infection: { amount: 3000, currency: 'infection', label: 'очков заражения', icon: '☣️' },
+  sign: { amount: 5000, currency: 'infection', label: 'очков заражения', icon: '☣️' },
+  basic: { amount: 100, currency: 'crimecoins', label: 'CRIMECOINS', icon: '🪙' },
+  legend: { amount: 599, currency: 'crimecoins', label: 'CRIMECOINS', icon: '🪙' }
+};
+
+function getCaseCostConfig(caseId) {
+  return CASE_COSTS[caseId] || null;
+}
+
+function buildCaseActionKeyboard(caseId, rows = []) {
+  const keyboard = [...rows];
+  keyboard.push([{ text: "👀 Предметы", callback_data: `preview_case:${caseId}` }]);
+  keyboard.push([{ text: "⬅️ Назад", callback_data: "cases" }]);
+  return keyboard;
+}
+
+function buildCaseInfoView(caseId, player, { notice } = {}) {
+  if (!caseId || !player) return null;
+  const label = getCaseLabel(caseId);
+  const paragraphs = [`📦 *${escMd(label)}*`];
+  if (notice) {
+    paragraphs.push(notice);
+  }
+
+  const keyboardRows = [];
+
+  if (caseId === 'free_gift') {
+    const now = Date.now();
+    const lastGiftTime = Number(player.lastGiftTime) || 0;
+    const elapsed = now - lastGiftTime;
+    paragraphs.push(
+      `🆓 Забирай один предмет раз в 24 часа. Не забудь подписаться на канал ${FREE_GIFT_CHANNEL}.`
+    );
+    if (lastGiftTime && elapsed < FREE_GIFT_COOLDOWN_MS) {
+      const timeLeft = FREE_GIFT_COOLDOWN_MS - elapsed;
+      const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+      const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+      paragraphs.push(`⌛ Следующий подарок будет доступен через ${hours} ч ${minutes} мин.`);
+    }
+    keyboardRows.push([{ text: "🎁 Забрать подарок", callback_data: "case_open:free_gift" }]);
+  } else if (caseId === 'invite') {
+    const referralLink = `https://t.me/CRIMECOREgameBOT?start=ref_${player.id}`;
+    const shareText = encodeURIComponent(
+      `заходи в первую РПГ телеграм игру CRIMECORE!!! ${referralLink}`
+    );
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${shareText}`;
+    const available = Number(player.inviteCasesAvailable) || 0;
+    paragraphs.push(
+      "👥 Пригласи нового игрока и получи кейс. Игрок должен впервые запустить бота по твоей ссылке.",
+      `🎁 Доступно открытий: ${available}.`,
+      `🔗 Твоя ссылка: \`${escMd(referralLink)}\``
+    );
+    keyboardRows.push([{ text: "📤 Отправить приглашение", url: shareUrl }]);
+    keyboardRows.push([{ text: "🎁 Открыть кейс", callback_data: "case_open:invite" }]);
+  } else if (caseId === 'infection' || caseId === 'sign') {
+    const costConfig = getCaseCostConfig(caseId);
+    const balance = Number(player.infection) || 0;
+    const lines = [];
+    if (costConfig) {
+      lines.push(
+        `${costConfig.icon} Стоимость: ${costConfig.amount} ${costConfig.label}.`,
+        `${costConfig.icon} Баланс: ${balance} ${costConfig.label}.`
+      );
+    }
+    if (caseId === 'infection') {
+      lines.push('Одна коробка — один гарантированный предмет. Шансы аналогичны PvE.');
+    } else {
+      lines.push('Все знаки из этого кейса выпадают с одинаковым шансом.');
+    }
+    paragraphs.push(lines.join('\n'));
+    const buttonText =
+      caseId === 'infection'
+        ? `🎁 Открыть за ${CASE_COSTS.infection.amount} ☣️`
+        : `🎁 Открыть за ${CASE_COSTS.sign.amount} ☣️`;
+    keyboardRows.push([{ text: buttonText, callback_data: `case_open:${caseId}` }]);
+  } else if (caseId === 'basic' || caseId === 'legend') {
+    const costConfig = getCaseCostConfig(caseId);
+    const balance = Number(player.crimecoins) || 0;
+    if (costConfig) {
+      paragraphs.push(
+        `${costConfig.icon} Стоимость: ${costConfig.amount} ${costConfig.label}.\n${costConfig.icon} Баланс: ${balance} ${costConfig.label}.`
+      );
+    }
+    if (caseId === 'basic') {
+      paragraphs.push('Одна коробка — один гарантированный предмет. Шансы аналогичны PvE.');
+    } else {
+      paragraphs.push('Легендарная коробка содержит только топовые предметы с равными шансами.');
+    }
+    const buttonText =
+      caseId === 'basic'
+        ? `🎁 Открыть за ${CASE_COSTS.basic.amount} CRIMECOINS`
+        : `🎁 Открыть за ${CASE_COSTS.legend.amount} CRIMECOINS`;
+    keyboardRows.push([{ text: buttonText, callback_data: `case_open:${caseId}` }]);
+  } else {
+    return null;
+  }
+
+  const text = paragraphs.filter(Boolean).join('\n\n');
+  return {
+    text,
+    keyboard: buildCaseActionKeyboard(caseId, keyboardRows),
+    parseMode: 'Markdown'
+  };
+}
+
+async function respondWithCaseInfo(chatId, messageId, caseId, player, options = {}) {
+  const view = buildCaseInfoView(caseId, player, options);
+  if (!view) {
+    await editOrSend(chatId, messageId, 'Этот кейс пока недоступен.', {
+      reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'cases' }]] }
+    });
+    return;
+  }
+
+  const messageOptions = {
+    reply_markup: { inline_keyboard: view.keyboard },
+    parse_mode: view.parseMode
+  };
+
+  await editOrSend(chatId, messageId, view.text, messageOptions);
+}
+
+async function handleFreeGiftOpen({ chatId, messageId, player, user }) {
+  try {
+    const member = await bot.getChatMember(FREE_GIFT_CHANNEL, user.id);
+    const status = member && member.status ? member.status : 'left';
+    if (status === 'left' || status === 'kicked') {
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '📢 Открыть канал',
+              url: `https://t.me/${String(FREE_GIFT_CHANNEL).replace(/^@/, '')}`
+            }
+          ],
+          [{ text: '✅ Проверить подписку', callback_data: 'case_open:free_gift' }],
+          [{ text: '👀 Предметы', callback_data: 'preview_case:free_gift' }],
+          [{ text: '⬅️ Назад', callback_data: 'cases' }]
+        ]
+      };
+      await editOrSend(
+        chatId,
+        messageId,
+        `❌ Вы не подписаны на канал ${FREE_GIFT_CHANNEL}. Подпишитесь и нажмите «Проверить подписку» снова.`,
+        { reply_markup: keyboard }
+      );
+      return;
+    }
+  } catch (err) {
+    console.error('Ошибка проверки подписки:', err);
+    await respondWithCaseInfo(chatId, messageId, 'free_gift', player, {
+      notice: '⚠️ Не удалось проверить подписку. Попробуйте позже.'
+    });
+    return;
+  }
+
+  const now = Date.now();
+  const lastGiftTime = Number(player.lastGiftTime) || 0;
+  if (now - lastGiftTime < FREE_GIFT_COOLDOWN_MS) {
+    await respondWithCaseInfo(chatId, messageId, 'free_gift', player, {
+      notice: '⚠️ Вы уже забирали подарок. Загляни позже.'
+    });
+    return;
+  }
+
+  const picked = pickFromSubscriptionPool(CASE_TYPES.FREE_GIFT);
+  if (!picked) {
+    await respondWithCaseInfo(chatId, messageId, 'free_gift', player, {
+      notice: '⚠️ Не удалось сгенерировать предмет. Попробуйте позже.'
+    });
+    return;
+  }
+
+  player.lastGiftTime = now;
+  await giveItemToPlayer(chatId, player, picked, '🎁 Бесплатный подарок за подписку (раз в 24 часа)');
+  saveData();
+}
+
+async function handleInviteCaseOpen({ chatId, messageId, player }) {
+  const available = Number(player.inviteCasesAvailable) || 0;
+  if (available <= 0) {
+    await respondWithCaseInfo(chatId, messageId, 'invite', player, {
+      notice: '⚠️ У вас нет доступных кейсов. Пригласите нового игрока по вашей ссылке.'
+    });
+    return;
+  }
+
+  const picked = pickFromSubscriptionPool(CASE_TYPES.INVITE);
+  if (!picked) {
+    await respondWithCaseInfo(chatId, messageId, 'invite', player, {
+      notice: '⚠️ Не удалось сгенерировать предмет. Попробуйте позже.'
+    });
+    return;
+  }
+
+  player.inviteCasesAvailable = Math.max(0, available - 1);
+  player.inviteCasesOpened = (Number(player.inviteCasesOpened) || 0) + 1;
+  saveData();
+  await giveItemToPlayer(chatId, player, picked, '🎁 Кейс за приглашение друга');
+}
+
+async function handleInfectionCaseOpen({ chatId, messageId, player }) {
+  const cost = CASE_COSTS.infection.amount;
+  const current = Number(player.infection) || 0;
+  if (current < cost) {
+    await respondWithCaseInfo(chatId, messageId, 'infection', player, {
+      notice: '⚠️ У вас недостаточно очков заражения.'
+    });
+    return;
+  }
+
+  const picked = pickFromSubscriptionPool(CASE_TYPES.INFECTION);
+  if (!picked) {
+    await respondWithCaseInfo(chatId, messageId, 'infection', player, {
+      notice: '⚠️ Не удалось сгенерировать предмет. Попробуйте позже.'
+    });
+    return;
+  }
+
+  player.infection = current - cost;
+  saveData();
+  await giveItemToPlayer(chatId, player, picked, '🎁 Кейс за очки заражения');
+}
+
+async function handleSignCaseOpen({ chatId, messageId, player }) {
+  const cost = CASE_COSTS.sign.amount;
+  const current = Number(player.infection) || 0;
+  if (current < cost) {
+    await respondWithCaseInfo(chatId, messageId, 'sign', player, {
+      notice: '⚠️ У вас недостаточно очков заражения.'
+    });
+    return;
+  }
+
+  const picked = pickRandomSignCaseItem();
+  if (!picked) {
+    await respondWithCaseInfo(chatId, messageId, 'sign', player, {
+      notice: '⚠️ Не удалось сгенерировать знак. Попробуйте позже.'
+    });
+    return;
+  }
+
+  player.infection = current - cost;
+  saveData();
+  await giveItemToPlayer(chatId, player, picked, '🎁 Знаки (5000 очков заражения)');
+}
+
+async function handleCrimecoinCaseOpen({ chatId, messageId, player }, caseId) {
+  const costConfig = getCaseCostConfig(caseId);
+  if (!costConfig) {
+    await respondWithCaseInfo(chatId, messageId, caseId, player, {
+      notice: '⚠️ Этот кейс временно недоступен.'
+    });
+    return;
+  }
+
+  const balance = Number(player.crimecoins) || 0;
+  if (balance < costConfig.amount) {
+    await respondWithCaseInfo(chatId, messageId, caseId, player, {
+      notice: '⚠️ Недостаточно CRIMECOINS. Обратитесь к администратору за пополнением.'
+    });
+    return;
+  }
+
+  const caseType = caseId === 'legend' ? CASE_TYPES.LEGEND : CASE_TYPES.BASIC;
+  const picked = pickCaseItem(caseType);
+  if (!picked) {
+    await respondWithCaseInfo(chatId, messageId, caseId, player, {
+      notice: '⚠️ Не удалось сгенерировать предмет. Попробуйте позже.'
+    });
+    return;
+  }
+
+  player.crimecoins = balance - costConfig.amount;
+  saveData();
+  const title = caseId === 'legend'
+    ? '💎 Вы открыли Легендарную коробку удачи!'
+    : '📦 Вы открыли Базовую коробку удачи!';
+  await giveItemToPlayer(chatId, player, picked, title);
+}
+
+async function handleCaseOpen(caseId, context) {
+  switch (caseId) {
+    case 'free_gift':
+      await handleFreeGiftOpen(context);
+      return;
+    case 'invite':
+      await handleInviteCaseOpen(context);
+      return;
+    case 'infection':
+      await handleInfectionCaseOpen(context);
+      return;
+    case 'sign':
+      await handleSignCaseOpen(context);
+      return;
+    case 'basic':
+    case 'legend':
+      await handleCrimecoinCaseOpen(context, caseId);
+      return;
+    default:
+      await respondWithCaseInfo(context.chatId, context.messageId, caseId, context.player, {
+        notice: '⚠️ Этот кейс недоступен.'
+      });
+  }
+}
 
 const DONATION_CONTACT = '@imfromcrimecorebitches';
 
@@ -4024,6 +4315,18 @@ if (dataCb === "cases") {
     return;
 }
 
+if (typeof dataCb === 'string' && dataCb.startsWith('case_info:')) {
+    const caseId = dataCb.split(':')[1] || '';
+    await respondWithCaseInfo(chatId, messageId, caseId, player);
+    return;
+}
+
+if (typeof dataCb === 'string' && dataCb.startsWith('case_open:')) {
+    const caseId = dataCb.split(':')[1] || '';
+    await handleCaseOpen(caseId, { chatId, messageId, player, user });
+    return;
+}
+
 if (typeof dataCb === 'string' && dataCb.startsWith('preview_case:')) {
     const caseId = dataCb.split(':')[1] || '';
     const previewText = buildCasePreviewText(caseId);
@@ -4034,204 +4337,39 @@ if (typeof dataCb === 'string' && dataCb.startsWith('preview_case:')) {
 }
 
 if (dataCb === "invite_friend") {
-    const referralLink = `https://t.me/CRIMECOREgameBOT?start=ref_${player.id}`;
-    const shareText = encodeURIComponent(`заходи в первую РПГ телеграм игру CRIMECORE!!! ${referralLink}`);
-    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${shareText}`;
-    const available = Number(player.inviteCasesAvailable) || 0;
-    const inviteText = [
-        "👥 *Притащить тело (бесплатно)* — пригласи друга и получи кейс за каждого нового игрока!",
-        "Каждый новый игрок должен впервые запустить бота именно по твоей ссылке, чтобы награда стала доступна.",
-        `🔗 Твоя персональная ссылка: \`${referralLink}\``,
-        available > 0
-            ? `🎁 Доступно открытий кейса: ${available}`
-            : "🎁 Пока нет доступных кейсов — пригласи нового игрока."
-    ].join("\n\n");
-
-    const keyboard = { inline_keyboard: [[{ text: "📤 Отправить приглашение", url: shareUrl }]] };
-    if (available > 0) {
-        keyboard.inline_keyboard.push([
-            { text: `🎁 Открыть кейс (${available})`, callback_data: "invite_case_open" }
-        ]);
-    }
-    keyboard.inline_keyboard.push([{ text: "⬅️ Назад", callback_data: "cases" }]);
-
-    await editOrSend(chatId, messageId, inviteText, {
-        reply_markup: keyboard,
-        parse_mode: "Markdown"
-    });
+    await respondWithCaseInfo(chatId, messageId, 'invite', player);
     return;
 }
 
 if (dataCb === "invite_case_open") {
-    const available = Number(player.inviteCasesAvailable) || 0;
-    if (available <= 0) {
-        await editOrSend(chatId, messageId, "❌ У вас нет доступных кейсов за приглашения. Пригласите нового игрока по вашей ссылке.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
-        });
-        return;
-    }
-
-    const picked = pickFromSubscriptionPool(CASE_TYPES.INVITE);
-    if (!picked) {
-        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
-        });
-        return;
-    }
-
-    player.inviteCasesAvailable = Math.max(0, available - 1);
-    player.inviteCasesOpened = (Number(player.inviteCasesOpened) || 0) + 1;
-    saveData();
-    await giveItemToPlayer(chatId, player, picked, "🎁 Кейс за приглашение друга");
+    await handleCaseOpen('invite', { chatId, messageId, player, user });
     return;
 }
 
 if (dataCb === "infection_case") {
-    const cost = 3000;
-    const currentInfection = player.infection || 0;
-
-    if (currentInfection < cost) {
-        await editOrSend(chatId, messageId, "⚠️ У вас недостаточно очков заражения.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
-        });
-        return;
-    }
-
-    const picked = pickFromSubscriptionPool(CASE_TYPES.INFECTION);
-    if (!picked) {
-        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
-        });
-        return;
-    }
-
-    player.infection = currentInfection - cost;
-    saveData();
-    await giveItemToPlayer(chatId, player, picked, "🎁 Кейс за очки заражения");
+    await handleCaseOpen('infection', { chatId, messageId, player, user });
     return;
 }
 
 if (dataCb === "sign_case") {
-    const cost = 5000;
-    const currentInfection = player.infection || 0;
-
-    if (currentInfection < cost) {
-        await editOrSend(chatId, messageId, "⚠️ У вас недостаточно очков заражения.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
-        });
-        return;
-    }
-
-    const picked = pickRandomSignCaseItem();
-    if (!picked) {
-        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать знак. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
-        });
-        return;
-    }
-
-    player.infection = currentInfection - cost;
-    saveData();
-    await giveItemToPlayer(chatId, player, picked, "🎁 Знаки (5000 очков заражения)");
+    await handleCaseOpen('sign', { chatId, messageId, player, user });
     return;
 }
 
 if (dataCb === "free_gift") {
-    const now = Date.now();
-    const lastGiftTime = player.lastGiftTime || 0;
-    const COOLDOWN = 24 * 60 * 60 * 1000; // 24 часа
-
-    // Проверяем подписку каждый раз при нажатии
-    try {
-        const member = await bot.getChatMember(FREE_GIFT_CHANNEL, user.id);
-        const status = (member && member.status) ? member.status : "left";
-        if (status === "left" || status === "kicked") {
-            await editOrSend(chatId, messageId,
-                `❌ Вы не подписаны на канал ${FREE_GIFT_CHANNEL}. Подпишитесь и нажмите «Проверить подписку» снова.`,
-                { reply_markup: {
-                    inline_keyboard: [
-                        [{ text: "📢 Открыть канал", url: `https://t.me/${String(FREE_GIFT_CHANNEL).replace(/^@/, "")}` }],
-                        [{ text: "✅ Проверить подписку", callback_data: "free_gift" }],
-                        [{ text: "⬅️ Назад", callback_data: "cases" }]
-                    ]
-                }});
-            return;
-        }
-    } catch (err) {
-        console.error("Ошибка проверки подписки:", err);
-        await editOrSend(chatId, messageId,
-            `❌ Не удалось проверить подписку. Убедитесь, что канал ${FREE_GIFT_CHANNEL} существует и публичный.`,
-            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] } });
-        return;
-    }
-
-    // Проверка кулдауна (24 часа)
-    if (now - lastGiftTime < COOLDOWN) {
-        const timeLeft = COOLDOWN - (now - lastGiftTime);
-        const hours = Math.floor(timeLeft / (1000 * 60 * 60));
-        const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-        await editOrSend(chatId, messageId,
-            `⌛ Вы уже забирали бесплатный подарок. Следующий можно получить через ${hours} ч ${minutes} мин.`,
-            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] } });
-        return;
-    }
-
-    // -------------------------
-    // Собираем пул предметов (всё из твоих массивов)
-    // -------------------------
-    const picked = pickFromSubscriptionPool(CASE_TYPES.FREE_GIFT);
-
-    if (!picked) {
-        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] } });
-        return;
-    }
-
-    // Сохраняем время получения и отдаем предмет (используем существующую функцию giveItemToPlayer)
-    player.lastGiftTime = now;
-    // (не ставим gotFreeLoot — теперь подарок раз в 24 часа)
-    await giveItemToPlayer(chatId, player, picked, "🎁 Бесплатный подарок за подписку (раз в 24 часа)");
-    saveData();
-
+    await handleCaseOpen('free_gift', { chatId, messageId, player, user });
     return;
 }
 
 if (dataCb === "basic_box") {
-    const title = "Базовая коробка удачи (100⭐)";
-    const description = "Одна коробка — один гарантированный предмет. Шансы аналогичны PvE.";
-    const payload = "loot_basic_100";
-    const startParam = "loot_basic";
-    const prices = [{ label: "Базовая коробка", amount: 10000 }]; // 100⭐ × 100
-    try {
-        await bot.sendInvoice(chatId, title, description, payload, "", startParam, "XTR", prices, {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
-        });
-    } catch (err) {
-        console.error("sendInvoice error:", err);
-        await bot.sendMessage(chatId, "Не удалось создать счёт. Попробуйте позже или сообщите администратору бота.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
-        });
-    }
+    await respondWithCaseInfo(chatId, messageId, 'basic', player);
     return;
 }
 
 if (dataCb === "legend_box") {
-    const title = "Легендарная коробка удачи (599⭐)";
-    const description = "Легендарная коробка — выпадение только из спец. списка сильных предметов (равные шансы).";
-    const payload = "loot_legend_599";
-    const startParam = "loot_legend";
-    const prices = [{ label: "Легендарная коробка", amount: 59900 }];
-    try {
-        await bot.sendInvoice(chatId, title, description, payload, "", startParam, "XTR", prices, {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
-        });
-    } catch (err) {
-        console.error("sendInvoice error:", err);
-        await bot.sendMessage(chatId, "Не удалось создать счёт. Попробуйте позже или сообщите администратору бота.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "cases" }]] }
-        });
-    }
+    await respondWithCaseInfo(chatId, messageId, 'legend', player);
     return;
-} // ← закрыли legend_box
+} // ← legacy legend_box handler
 
 if (dataCb === "hunt") {
   const now = Date.now();
@@ -5025,96 +5163,6 @@ bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
   await bot
     .sendMessage(msg.chat.id, startText, { reply_markup: mainMenuKeyboard(), parse_mode: "Markdown" })
     .catch(() => {});
-});
-
-bot.on("pre_checkout_query", async (q) => {
-  try {
-    await bot.answerPreCheckoutQuery(q.id, true);
-  } catch (e) {
-    console.error("pre_checkout error:", e);
-  }
-});
-
-bot.on("message", async (msg) => {
-  try {
-    if (!msg.successful_payment) return;
-    const payload = msg.successful_payment.invoice_payload;
-    const chatId = msg.chat.id;
-    const user = msg.from;
-    const player = ensurePlayer(user);
-    if (!player) return;
-
-    if (payload === "loot_basic_100") {
-      const item = pickCaseItem(CASE_TYPES.BASIC);
-      if (!item) {
-        await bot.sendMessage(chatId, "Произошла ошибка при генерации предмета. Свяжитесь с админом.");
-        return;
-      }
-      await giveItemToPlayer(chatId, player, item, "📦 Вы открыли Базовую коробку удачи!");
-      saveData();
-      return;
-    }
-
-    if (payload === "loot_legend_599") {
-      const item = pickCaseItem(CASE_TYPES.LEGEND);
-      if (!item) {
-        await bot.sendMessage(chatId, "Произошла ошибка при генерации предмета. Свяжитесь с админом.");
-        return;
-      }
-      await giveItemToPlayer(chatId, player, item, "💎 Вы открыли Легендарную коробку удачи!");
-      saveData();
-      return;
-    }
-
-    console.log("Unknown invoice payload:", payload);
-  } catch (e) {
-    console.error("successful_payment handling error:", e);
-  }
-});
-
-bot.on("pre_checkout_query", async (q) => {
-  try {
-    await bot.answerPreCheckoutQuery(q.id, true);
-  } catch (e) {
-    console.error("pre_checkout error:", e);
-  }
-});
-
-bot.on("message", async (msg) => {
-  try {
-    if (!msg.successful_payment) return;
-    const payload = msg.successful_payment.invoice_payload;
-    const chatId = msg.chat.id;
-    const user = msg.from;
-    const player = ensurePlayer(user);
-    if (!player) return;
-
-    if (payload === "loot_basic_100") {
-      const item = pickCaseItem(CASE_TYPES.BASIC);
-      if (!item) {
-        await bot.sendMessage(chatId, "Произошла ошибка при генерации предмета. Свяжитесь с админом.");
-        return;
-      }
-      await giveItemToPlayer(chatId, player, item, "📦 Вы открыли Базовую коробку удачи!");
-      saveData();
-      return;
-    }
-
-    if (payload === "loot_legend_599") {
-      const item = pickCaseItem(CASE_TYPES.LEGEND);
-      if (!item) {
-        await bot.sendMessage(chatId, "Произошла ошибка при генерации предмета. Свяжитесь с админом.");
-        return;
-      }
-      await giveItemToPlayer(chatId, player, item, "💎 Вы открыли Легендарную коробку удачи!");
-      saveData();
-      return;
-    }
-
-    console.log("Unknown invoice payload:", payload);
-  } catch (e) {
-    console.error("successful_payment handling error:", e);
-  }
 });
 
   // Auto-save every 30s

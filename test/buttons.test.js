@@ -19,18 +19,12 @@ test('loot menu contains expected reward options', () => {
   const keyboard = lootMenuKeyboard();
   const callbacks = keyboard.inline_keyboard.flat().map(btn => btn.callback_data);
   assert.deepStrictEqual(callbacks, [
-    'free_gift',
-    'preview_case:free_gift',
-    'invite_friend',
-    'preview_case:invite',
-    'sign_case',
-    'preview_case:sign',
-    'infection_case',
-    'preview_case:infection',
-    'basic_box',
-    'preview_case:basic',
-    'legend_box',
-    'preview_case:legend',
+    'case_info:free_gift',
+    'case_info:invite',
+    'case_info:sign',
+    'case_info:infection',
+    'case_info:basic',
+    'case_info:legend',
     'play'
   ]);
 });
