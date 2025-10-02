@@ -1190,7 +1190,7 @@ function mainMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🩸 Выйти на охоту", callback_data: "hunt" }],
-      [{ text: "🎰 Лутать тело", callback_data: "loot_menu" }],
+      [{ text: "🎰 Кейсы", callback_data: "cases" }],
       [{ text: "🎒 Инвентарь", callback_data: "inventory" }],
       [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard" }],
       [{ text: "⚔️ PvP", callback_data: "pvp_menu" }],
