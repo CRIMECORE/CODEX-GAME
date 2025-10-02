@@ -1304,7 +1304,7 @@ function mainMenuKeyboard() {
       [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard_menu" }],
       [{ text: "⚔️ PvP", callback_data: "pvp_menu" }],
       [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
-      [{ text: "📚 Ресурсы", callback_data: "resources" }]
+      [{ text: "👥 Комьюнити", callback_data: "resources" }]
     ]
   };
 }
