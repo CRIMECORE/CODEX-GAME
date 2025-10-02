@@ -278,6 +278,25 @@ function buildItemRarityText(item) {
   return `\n${emoji} Редкость: ${rarity.label}.`;
 }
 
+function describeSignEffect(sign) {
+  if (!sign) return "—";
+  const effects = getSignEffects(sign);
+  if (!effects) return "—";
+  if (effects.preventLethal === "final" && effects.fullHeal) {
+    return "при смертельном ударе восстанавливает все HP (1 раз)";
+  }
+  if (effects.preventLethal === "radiation") {
+    return "спасает от летального удара и даёт дополнительный ход (1 раз)";
+  }
+  if (effects.dodgeChance > 0) {
+    return `${Math.round(effects.dodgeChance * 100)}% шанс увернуться`;
+  }
+  if (effects.vampirism > 0) {
+    return `+${Math.round(effects.vampirism * 100)}% к вампиризму`;
+  }
+  return "—";
+}
+
 function formatItemRewardMessage(item) {
   if (!item) return "";
   let text = `🎉 *Поздравляем!* Вы получили: *${escMd(item.name)}*.`;
@@ -396,6 +415,9 @@ let clans = data.clans;
 let clanInvites = data.clanInvites;
 let clanBattles = data.clanBattles;
 let bloodReminderTimer = null;
+const adminBroadcastSessions = new Map();
+const ADMIN_BROADCAST_CANCEL = 'admin_broadcast:cancel';
+const ADMIN_BROADCAST_CONFIRM = 'admin_broadcast:confirm';
 
 // Prevent concurrent writes under heavy load
 let savingPromise = Promise.resolve();
@@ -1693,24 +1715,6 @@ function getSignEffects(sign) {
   };
 }
 
-function describeSignEffect(sign) {
-  if (!sign) return "—";
-  const effects = getSignEffects(sign);
-  if (effects.preventLethal === "final" && effects.fullHeal) {
-    return "при смертельном ударе восстанавливает все HP (1 раз)";
-  }
-  if (effects.preventLethal === "radiation") {
-    return "спасает от летального удара и даёт дополнительный ход (1 раз)";
-  }
-  if (effects.dodgeChance > 0) {
-    return `${Math.round(effects.dodgeChance * 100)}% шанс увернуться`;
-  }
-  if (effects.vampirism > 0) {
-    return `+${Math.round(effects.vampirism * 100)}% к вампиризму`;
-  }
-  return "—";
-}
-
 function pickRandomSignCaseItem() {
   return pickCaseItem(CASE_TYPES.SIGN, { includeSigns: true });
 }
@@ -2444,7 +2448,7 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
   const baseCaption = `⚠️ *Опасное событие*: ${escMd(scenario.title)} — ${escMd(branch.name)}`;
 
   if (player.hp <= 0) {
-    player.infection = Math.max(0, (player.infection || 0) - 400);
+    player.infection = Math.max(0, (player.infection || 0) - 100);
     resetSurvivalProgress(player);
     applyArmorHelmetBonuses(player);
     player.hp = player.maxHp;
@@ -2456,7 +2460,7 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
       "",
       `${escMd(scenario.failure)}`,
       "",
-      "☣️ Ты потерял 400 заражения.",
+      "☣️ Ты потерял 100 заражения.",
       "🗓 Дни выживания обнулились."
     ].filter(Boolean).join("\n");
     await bot.editMessageCaption(failureText, {
@@ -2469,7 +2473,7 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
   }
 
   if (Math.random() < exitChance) {
-    player.infection = (player.infection || 0) + 400;
+    player.infection = (player.infection || 0) + 100;
     player.currentDanger = null;
     player.currentDangerMsgId = null;
     let successText = [
@@ -2477,7 +2481,7 @@ async function continueDangerEvent(player, chatId, messageId, choiceIndex) {
       "",
       `${escMd(scenario.success)}`,
       "",
-      "☣️ Ты получил 400 заражения."
+      "☣️ Ты получил 100 заражения."
     ].join("\n");
     const survivalMessage = grantSurvivalDay(player);
     if (survivalMessage) {
@@ -3613,6 +3617,34 @@ setInterval(cleanExpiredInvites, 60 * 1000);
 
 
 // /admingive <item name> — admin-only self-give
+bot.onText(/^\/sendall(?:@\w+)?$/i, async (msg) => {
+  const userId = msg.from?.id;
+  const chatId = msg.chat.id;
+  if (!userId) return;
+  if (!isAdmin(userId)) {
+    await bot.sendMessage(chatId, "❌ Команда доступна только администраторам.");
+    return;
+  }
+
+  const existing = adminBroadcastSessions.get(userId);
+  if (existing && existing.stage === 'broadcasting') {
+    await bot.sendMessage(chatId, "⏳ Подождите, текущая рассылка ещё не завершена.");
+    return;
+  }
+
+  adminBroadcastSessions.set(userId, {
+    stage: 'awaiting_text',
+    chatId,
+    content: null
+  });
+
+  await bot.sendMessage(chatId, "✉️ Отправьте текст рассылки одним сообщением. Форматирование будет сохранено.", {
+    reply_markup: {
+      inline_keyboard: [[{ text: 'Отмена', callback_data: ADMIN_BROADCAST_CANCEL }]]
+    }
+  });
+});
+
 bot.onText(/\/admingive(?:@\w+)?\s+(.+)/i, async (msg, match) => {
   const chatId = msg.chat.id;
   try {
@@ -3637,6 +3669,59 @@ bot.onText(/\/admingive(?:@\w+)?\s+(.+)/i, async (msg, match) => {
     console.error("/admingive error:", e);
     bot.sendMessage(chatId, "Произошла ошибка при выдаче предмета.");
   }
+});
+
+bot.on('message', async (msg) => {
+  const userId = msg.from?.id;
+  if (!userId) return;
+
+  const session = adminBroadcastSessions.get(userId);
+  if (!session || session.stage !== 'awaiting_text') {
+    return;
+  }
+
+  if (!isAdmin(userId)) {
+    adminBroadcastSessions.delete(userId);
+    return;
+  }
+
+  const rawText = typeof msg.text === 'string' ? msg.text : null;
+  if (!rawText || !rawText.trim()) {
+    await bot.sendMessage(msg.chat.id, "❌ Пожалуйста, отправьте текстовое сообщение для рассылки.");
+    return;
+  }
+
+  if (/^\/sendall(?:@\w+)?$/i.test(rawText.trim())) {
+    return;
+  }
+
+  const disableWebPreview = Boolean(msg.link_preview_options?.is_disabled);
+  const content = {
+    text: rawText,
+    entities: Array.isArray(msg.entities) ? msg.entities : [],
+    disableWebPreview
+  };
+
+  adminBroadcastSessions.set(userId, {
+    stage: 'awaiting_confirm',
+    chatId: msg.chat.id,
+    content
+  });
+
+  await bot.sendMessage(msg.chat.id, "📣 Предпросмотр рассылки:");
+  await bot.sendMessage(msg.chat.id, content.text, {
+    entities: content.entities.length > 0 ? content.entities : undefined,
+    disable_web_page_preview: content.disableWebPreview || undefined
+  });
+
+  await bot.sendMessage(msg.chat.id, "Отправить сообщение всем игрокам?", {
+    reply_markup: {
+      inline_keyboard: [[
+        { text: '✅ Отправить', callback_data: ADMIN_BROADCAST_CONFIRM },
+        { text: 'Отмена', callback_data: ADMIN_BROADCAST_CANCEL }
+      ]]
+    }
+  });
 });
 
 
@@ -4121,6 +4206,97 @@ bot.on("callback_query", async (q) => {
   const messageId = q.message.message_id;
 
   await bot.answerCallbackQuery(q.id).catch(()=>{});
+
+  if (dataCb === ADMIN_BROADCAST_CANCEL) {
+    if (!isAdmin(user?.id)) {
+      return;
+    }
+    const session = adminBroadcastSessions.get(user.id);
+    if (session) {
+      adminBroadcastSessions.delete(user.id);
+      await bot.sendMessage(chatId, "Рассылка отменена.");
+    } else {
+      await bot.sendMessage(chatId, "Активных рассылок нет.");
+    }
+    return;
+  }
+
+  if (dataCb === ADMIN_BROADCAST_CONFIRM) {
+    if (!isAdmin(user?.id)) {
+      await bot.sendMessage(chatId, "❌ У вас нет прав для запуска рассылки.");
+      return;
+    }
+
+    const session = adminBroadcastSessions.get(user.id);
+    if (!session || session.stage !== 'awaiting_confirm' || !session.content) {
+      await bot.sendMessage(chatId, "❗️ Нет подготовленной рассылки для отправки.");
+      return;
+    }
+
+    adminBroadcastSessions.set(user.id, { ...session, stage: 'broadcasting' });
+
+    const { text, entities, disableWebPreview } = session.content;
+    const recipientsSet = new Set();
+
+    try {
+      const [rows] = await pool.execute('SELECT id FROM players');
+      if (Array.isArray(rows)) {
+        for (const row of rows) {
+          const rawId = row && (row.id ?? row.playerId ?? row.player_id);
+          if (rawId === null || rawId === undefined) continue;
+          recipientsSet.add(String(rawId));
+        }
+      }
+    } catch (err) {
+      console.error('Не удалось получить список игроков для рассылки:', err);
+      await bot.sendMessage(chatId, '❌ Ошибка чтения списка игроков. Попробуйте ещё раз позже.');
+      adminBroadcastSessions.delete(user.id);
+      return;
+    }
+
+    for (const key of Object.keys(players || {})) {
+      if (key === undefined || key === null) continue;
+      recipientsSet.add(String(key));
+    }
+
+    const recipients = Array.from(recipientsSet)
+      .map((raw) => {
+        const numeric = Number(raw);
+        return Number.isFinite(numeric) ? numeric : raw;
+      })
+      .filter((id) => id !== null && id !== undefined && `${id}`.trim() !== '');
+
+    if (recipients.length === 0) {
+      await bot.sendMessage(chatId, '⚠️ Не найдено ни одного получателя.');
+      adminBroadcastSessions.delete(user.id);
+      return;
+    }
+
+    await bot.sendMessage(chatId, `📤 Начинаю рассылку (${recipients.length} получателей)...`);
+
+    let successCount = 0;
+    let failCount = 0;
+    for (const targetId of recipients) {
+      try {
+        await bot.sendMessage(targetId, text, {
+          entities: entities && entities.length > 0 ? entities : undefined,
+          disable_web_page_preview: disableWebPreview || undefined
+        });
+        successCount += 1;
+      } catch (err) {
+        failCount += 1;
+        console.warn(`Не удалось отправить рассылку пользователю ${targetId}:`, err.message || err);
+      }
+    }
+
+    await bot.sendMessage(
+      chatId,
+      `✅ Рассылка завершена.\nУспешно: ${successCount}\nОшибок: ${failCount}`
+    );
+
+    adminBroadcastSessions.delete(user.id);
+    return;
+  }
 
   // === Ограничение кнопок в любых группах (group/supergroup): разрешены только PvP и Кланы ===
   try {
