@@ -3091,10 +3091,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 350,
     introImage: 'https://i.postimg.cc/PxFCbN2B/photo-2025-10-03-06-09-49.jpg',
-    introText: '2я комната подвала\n🩸 Ты встретил Скауты\nHP: 1550/1550\nУрон: 220',
+    introText: '2я комната подвала\n🩸 Ты встретил Скауты\nHP: 1650/1650\nУрон: 320',
     enemyName: 'Скауты',
-    enemyHp: 1550,
-    enemyDamage: 220
+    enemyHp: 1650,
+    enemyDamage: 320
   },
   {
     index: 3,
@@ -3117,10 +3117,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 1500,
     introImage: 'https://i.postimg.cc/VNfv3XTk/photo-2025-10-03-06-09-44.jpg',
-    introText: '4я комната подвала\n🩸 Ты встретил Охрана\nHP: 5300/5300\nУрон: 455',
+    introText: '4я комната подвала\n🩸 Ты встретил Охрана\nHP: 6300/6300\nУрон: 555',
     enemyName: 'Охрана',
-    enemyHp: 5300,
-    enemyDamage: 455
+    enemyHp: 6300,
+    enemyDamage: 555
   },
   {
     index: 5,
@@ -3130,10 +3130,10 @@ const RAID_STAGES = [
     choiceImage: 'https://i.postimg.cc/PfPK8R4c/photo-2025-10-03-06-09-47.jpg',
     choiceText: '5я комната подвала\n🩸 Ты встретил Тихие подопытные',
     battleImage: 'https://i.postimg.cc/wjckp8qF/photo-2025-10-03-06-09-50-2.jpg',
-    battleText: '5я комната подвала\n🩸 Ты встретил Усиленная охрана\nHP: 7300/7300\nУрон: 610',
+    battleText: '5я комната подвала\n🩸 Ты встретил Усиленная охрана\nHP: 8300/8300\nУрон: 710',
     enemyName: 'Усиленная охрана',
-    enemyHp: 7300,
-    enemyDamage: 610,
+    enemyHp: 8300,
+    enemyDamage: 710,
     stealthChanceDefault: 0.1,
     stealthChanceStealth: 0.7
   },
@@ -3143,10 +3143,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 5000,
     introImage: 'https://i.postimg.cc/d1DRrh8y/photo-2025-10-03-06-09-48.jpg',
-    introText: '6я комната подвала\n🩸 Ты встретил Обезумевшая\nHP: 8500/8500\nУрон: 700',
+    introText: '6я комната подвала\n🩸 Ты встретил Обезумевшая\nHP: 9500/9500\nУрон: 800',
     enemyName: 'Обезумевшая',
-    enemyHp: 8500,
-    enemyDamage: 700
+    enemyHp: 9500,
+    enemyDamage: 800
   },
   {
     index: 7,
@@ -3154,10 +3154,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 7500,
     introImage: 'https://i.postimg.cc/bYDHv2Yv/photo-2025-10-03-06-09-54.jpg',
-    introText: '7я комната подвала - Лабаратория\n🩸 Ты встретил Спец охрана\nHP: 9000/9000\nУрон: 730',
+    introText: '7я комната подвала - Лабаратория\n🩸 Ты встретил Спец охрана\nHP: 10000/10000\nУрон: 830',
     enemyName: 'Спец охрана',
-    enemyHp: 9000,
-    enemyDamage: 730
+    enemyHp: 10000,
+    enemyDamage: 830
   },
   {
     index: 8,
@@ -3165,10 +3165,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 15000,
     introImage: 'https://i.postimg.cc/X79ffSCS/photo-2025-10-03-06-09-55.jpg',
-    introText: '8я комната подвала - Лабаратория\n🩸 Ты встретил Зубастики\nHP: 11000/11000\nУрон: 800',
+    introText: '8я комната подвала - Лабаратория\n🩸 Ты встретил Зубастики\nHP: 12000/12000\nУрон: 900',
     enemyName: 'Зубастики',
-    enemyHp: 11000,
-    enemyDamage: 800
+    enemyHp: 12000,
+    enemyDamage: 900
   },
   {
     index: 9,
@@ -3176,10 +3176,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 25000,
     introImage: 'https://i.postimg.cc/HLvXYTfM/photo-2025-10-03-06-09-55-2.jpg',
-    introText: '9я комната подвала - Финал\n🩸 Ты встретил Босс тьма\nHP: 15000/15000\nУрон: 1100',
+    introText: '9я комната подвала - Финал\n🩸 Ты встретил Босс тьма\nHP: 17500/17500\nУрон: 1300',
     enemyName: 'Босс тьма',
-    enemyHp: 15000,
-    enemyDamage: 1100
+    enemyHp: 17500,
+    enemyDamage: 1300
   }
 ];
 
