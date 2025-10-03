@@ -3070,6 +3070,8 @@ const RAID_STYLE_OPTIONS = {
   intellect: { key: 'intellect', label: 'Интелект', display: 'Интелект', emoji: '🟡' },
   aggression: { key: 'aggression', label: 'Агрессия', display: 'Агрссия', emoji: '🔴' }
 };
+const RAID_AGGRESSION_DAMAGE_REDUCTION_CHANCE = 0.5;
+const RAID_AGGRESSION_DAMAGE_REDUCTION_FACTOR = 0.75;
 
 const RAID_STAGES = [
   {
@@ -3089,10 +3091,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 350,
     introImage: 'https://i.postimg.cc/PxFCbN2B/photo-2025-10-03-06-09-49.jpg',
-    introText: '2я комната подвала\n🩸 Ты встретил Скауты\nHP: 2650/2650\nУрон: 320',
+    introText: '2я комната подвала\n🩸 Ты встретил Скауты\nHP: 1550/1550\nУрон: 220',
     enemyName: 'Скауты',
-    enemyHp: 2650,
-    enemyDamage: 320
+    enemyHp: 1550,
+    enemyDamage: 220
   },
   {
     index: 3,
@@ -3115,10 +3117,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 1500,
     introImage: 'https://i.postimg.cc/VNfv3XTk/photo-2025-10-03-06-09-44.jpg',
-    introText: '4я комната подвала\n🩸 Ты встретил Охрана\nHP: 7300/7300\nУрон: 675',
+    introText: '4я комната подвала\n🩸 Ты встретил Охрана\nHP: 5300/5300\nУрон: 455',
     enemyName: 'Охрана',
-    enemyHp: 7300,
-    enemyDamage: 675
+    enemyHp: 5300,
+    enemyDamage: 455
   },
   {
     index: 5,
@@ -3128,10 +3130,10 @@ const RAID_STAGES = [
     choiceImage: 'https://i.postimg.cc/PfPK8R4c/photo-2025-10-03-06-09-47.jpg',
     choiceText: '5я комната подвала\n🩸 Ты встретил Тихие подопытные',
     battleImage: 'https://i.postimg.cc/wjckp8qF/photo-2025-10-03-06-09-50-2.jpg',
-    battleText: '5я комната подвала\n🩸 Ты встретил Усиленная охрана\nHP: 8500/8500\nУрон: 730',
+    battleText: '5я комната подвала\n🩸 Ты встретил Усиленная охрана\nHP: 7300/7300\nУрон: 610',
     enemyName: 'Усиленная охрана',
-    enemyHp: 8500,
-    enemyDamage: 730,
+    enemyHp: 7300,
+    enemyDamage: 610,
     stealthChanceDefault: 0.1,
     stealthChanceStealth: 0.7
   },
@@ -3141,10 +3143,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 5000,
     introImage: 'https://i.postimg.cc/d1DRrh8y/photo-2025-10-03-06-09-48.jpg',
-    introText: '6я комната подвала\n🩸 Ты встретил Обезумевшая\nHP: 9500/9500\nУрон: 920',
+    introText: '6я комната подвала\n🩸 Ты встретил Обезумевшая\nHP: 8500/8500\nУрон: 700',
     enemyName: 'Обезумевшая',
-    enemyHp: 9500,
-    enemyDamage: 920
+    enemyHp: 8500,
+    enemyDamage: 700
   },
   {
     index: 7,
@@ -3152,10 +3154,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 7500,
     introImage: 'https://i.postimg.cc/bYDHv2Yv/photo-2025-10-03-06-09-54.jpg',
-    introText: '7я комната подвала - Лабаратория\n🩸 Ты встретил Спец охрана\nHP: 12100/12100\nУрон: 1250',
+    introText: '7я комната подвала - Лабаратория\n🩸 Ты встретил Спец охрана\nHP: 9000/9000\nУрон: 730',
     enemyName: 'Спец охрана',
-    enemyHp: 12100,
-    enemyDamage: 1250
+    enemyHp: 9000,
+    enemyDamage: 730
   },
   {
     index: 8,
@@ -3163,10 +3165,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 15000,
     introImage: 'https://i.postimg.cc/X79ffSCS/photo-2025-10-03-06-09-55.jpg',
-    introText: '8я комната подвала - Лабаратория\n🩸 Ты встретил Зубастики\nHP: 14500/14500\nУрон: 1550',
+    introText: '8я комната подвала - Лабаратория\n🩸 Ты встретил Зубастики\nHP: 11000/11000\nУрон: 800',
     enemyName: 'Зубастики',
-    enemyHp: 14500,
-    enemyDamage: 1550
+    enemyHp: 11000,
+    enemyDamage: 800
   },
   {
     index: 9,
@@ -3174,10 +3176,10 @@ const RAID_STAGES = [
     type: 'battle',
     reward: 25000,
     introImage: 'https://i.postimg.cc/HLvXYTfM/photo-2025-10-03-06-09-55-2.jpg',
-    introText: '9я комната подвала - Финал\n🩸 Ты встретил Босс тьма\nHP: 17000/17000\nУрон: 2150',
+    introText: '9я комната подвала - Финал\n🩸 Ты встретил Босс тьма\nHP: 15000/15000\nУрон: 1100',
     enemyName: 'Босс тьма',
-    enemyHp: 17000,
-    enemyDamage: 2150
+    enemyHp: 15000,
+    enemyDamage: 1100
   }
 ];
 
@@ -3425,13 +3427,30 @@ async function startRaidBattle(state, stage) {
     console.error('raid battle intro error:', err);
     await bot.sendMessage(state.chatId, caption).catch(() => {});
   }
+  let enemyDamage = Number(stage.enemyDamage) || 0;
+  let aggressionReduced = false;
+  if (
+    state.style === 'aggression' &&
+    Number.isFinite(enemyDamage) &&
+    Math.random() < RAID_AGGRESSION_DAMAGE_REDUCTION_CHANCE
+  ) {
+    enemyDamage = Math.max(1, Math.ceil(enemyDamage * RAID_AGGRESSION_DAMAGE_REDUCTION_FACTOR));
+    aggressionReduced = true;
+  }
   state.currentEnemy = {
     name: stage.enemyName,
     hp: stage.enemyHp,
     maxHp: stage.enemyHp,
-    damage: stage.enemyDamage,
-    stun: 0
+    damage: enemyDamage,
+    baseDamage: stage.enemyDamage,
+    stun: 0,
+    aggressionReduced
   };
+  if (aggressionReduced) {
+    await bot
+      .sendMessage(state.chatId, 'Стиль Агрессия ослабил противника: его урон снижен на 25%.')
+      .catch(() => {});
+  }
   if (state.turnTimeout) {
     clearTimeout(state.turnTimeout);
     state.turnTimeout = null;
@@ -3619,15 +3638,40 @@ async function processRaidTurn(state) {
   }, 2500);
 }
 
-function awardRaidStageReward(state, stage) {
+function recordRaidStageCompletion(state, stage) {
   if (!state || !stage) return;
-  if (!state.completedStageIndexes) state.completedStageIndexes = new Set();
-  if (state.completedStageIndexes.has(stage.index)) return;
-  state.completedStageIndexes.add(stage.index);
+  state.lastClearedStageIndex = stage.index;
+  state.lastClearedStageReward = stage.reward || 0;
+}
+
+function formatRaidStageLabel(stage, stageIndex) {
+  if (stage && Number.isFinite(stage.index)) {
+    const namePart = stage.enemyName ? ` (${stage.enemyName})` : '';
+    return `комнату ${stage.index}${namePart}`;
+  }
+  if (Number.isFinite(stageIndex)) {
+    return `комнату №${stageIndex}`;
+  }
+  return null;
+}
+
+function finalizeRaidReward(state) {
+  if (!state || state.rewardGranted) return null;
+  state.rewardGranted = true;
+  const stageIndex = state.lastClearedStageIndex;
+  const reward = Number(state.lastClearedStageReward) || 0;
+  if (!Number.isFinite(stageIndex) || reward <= 0) {
+    return 'Награда не получена, команда не успела добыть информацию.';
+  }
+  const stage = RAID_STAGES.find((s) => s.index === stageIndex) || null;
+  const label = formatRaidStageLabel(stage, stageIndex) || 'последнюю комнату';
   const clan = clans[String(state.clanId)];
-  if (!clan) return;
-  clan.points = (clan.points || 0) + (stage.reward || 0);
-  saveData();
+  if (clan) {
+    clan.points = (clan.points || 0) + reward;
+    saveData();
+    return `🏆 Клан получил ${reward} клановых очков за ${label}.`;
+  }
+  return `Награда ${reward} очков за ${label} не начислена, так как клан не найден.`;
 }
 
 function healRaidMembers(state, amount) {
@@ -3645,12 +3689,15 @@ async function handleRaidStageClear(state, stage) {
     state.turnTimeout = null;
   }
   state.currentEnemy = null;
-  awardRaidStageReward(state, stage);
+  recordRaidStageCompletion(state, stage);
   const isFinalStage = state.stagePointer >= RAID_STAGES.length - 1;
-  let text;
   if (isFinalStage) {
-    text = `Поздравляем! Вы выполнили миссию на 100% Ваша награда ${stage.reward} клановых очков.`;
-    await bot.sendMessage(state.chatId, text).catch(() => {});
+    const rewardMessage = finalizeRaidReward(state);
+    const lines = ['Поздравляем! Вы выполнили миссию на 100%!'];
+    if (rewardMessage) {
+      lines.push(rewardMessage);
+    }
+    await bot.sendMessage(state.chatId, lines.join('\n')).catch(() => {});
     cleanupRaidState(state);
     return;
   }
@@ -3658,10 +3705,16 @@ async function handleRaidStageClear(state, stage) {
   let medkitText = '';
   if (Math.random() < medkitChance) {
     healRaidMembers(state, RAID_MEDKIT_HEAL);
-    medkitText = '\nТакже вы нашли склад с запасами медикаментов! Все игроки пополнили 300хп';
+    medkitText = 'Также вы нашли склад с запасами медикаментов! Все игроки пополнили 300хп';
   }
-  text = `Поздравляем! Вы получили доступ ко следующей комнате подвала!\n🏆 Клан получил ${stage.reward} клановых очков.${medkitText}`;
-  await bot.sendMessage(state.chatId, text).catch(() => {});
+  const lines = [
+    'Поздравляем! Вы получили доступ ко следующей комнате подвала!',
+    'Награда будет начислена после завершения миссии.'
+  ];
+  if (medkitText) {
+    lines.push(medkitText);
+  }
+  await bot.sendMessage(state.chatId, lines.join('\n')).catch(() => {});
   state.stagePointer += 1;
   state.status = 'transition';
   state.turnTimeout = setTimeout(() => {
@@ -3670,7 +3723,9 @@ async function handleRaidStageClear(state, stage) {
 }
 
 function handleRaidFailure(state, message) {
-  cleanupRaidState(state, message);
+  const rewardMessage = finalizeRaidReward(state);
+  const finalMessage = rewardMessage ? `${message}\n${rewardMessage}` : message;
+  cleanupRaidState(state, finalMessage);
 }
 
 // helper: ensure clan exists
@@ -5223,7 +5278,9 @@ if (dataCb === "clans_raid_mission") {
     styleMessageId: null,
     styleMessageChatId: null,
     pendingChoice: null,
-    completedStageIndexes: new Set()
+    lastClearedStageIndex: null,
+    lastClearedStageReward: 0,
+    rewardGranted: false
   };
   const addResult = addPlayerToRaid(state, player);
   if (!addResult.success) {
