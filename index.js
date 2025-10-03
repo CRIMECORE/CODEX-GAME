@@ -3078,6 +3078,7 @@ const RAID_STYLE_OPTIONS = {
 };
 const RAID_AGGRESSION_DAMAGE_REDUCTION_CHANCE = 0.5;
 const RAID_AGGRESSION_DAMAGE_REDUCTION_FACTOR = 0.75;
+const RAID_MESSAGE_DELAY_MS = 2000;
 
 const RAID_STAGES = [
   {
@@ -3284,8 +3285,15 @@ async function broadcastToRaidParticipants(state, handler) {
   }
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function sendRaidMessage(state, text, options = undefined) {
   if (!state) return null;
+  if (RAID_MESSAGE_DELAY_MS > 0) {
+    await delay(RAID_MESSAGE_DELAY_MS);
+  }
   let sent = null;
   try {
     sent = await bot.sendMessage(state.chatId, text, options);
@@ -3303,6 +3311,9 @@ async function sendRaidMessage(state, text, options = undefined) {
 
 async function sendRaidPhoto(state, photo, options = undefined) {
   if (!state) return null;
+  if (RAID_MESSAGE_DELAY_MS > 0) {
+    await delay(RAID_MESSAGE_DELAY_MS);
+  }
   let sent = null;
   try {
     sent = await bot.sendPhoto(state.chatId, photo, options);
