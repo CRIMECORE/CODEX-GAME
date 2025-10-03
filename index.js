@@ -1463,6 +1463,12 @@ function findPlayerByIdentifier(identifier) {
   );
 }
 
+function getPlayerById(id) {
+  if (id === null || id === undefined) return null;
+  const key = String(id);
+  return players[key] || null;
+}
+
 function cleanDatabase() {
   for (const [key, p] of Object.entries(players)) {
     if (!p || typeof p !== 'object') {
@@ -3207,6 +3213,124 @@ function unregisterRaidState(state) {
   }
 }
 
+function getRaidParticipantChatIds(state) {
+  if (!state || !Array.isArray(state.members)) return [];
+  const ids = new Set();
+  for (const member of state.members) {
+    if (!member) continue;
+    const rawId = member.playerId ?? member.player?.id;
+    if (rawId === null || rawId === undefined) continue;
+    const numeric = Number(rawId);
+    if (Number.isFinite(numeric)) {
+      ids.add(numeric);
+    } else {
+      ids.add(rawId);
+    }
+  }
+  return Array.from(ids);
+}
+
+function getRaidParticipantPlayers(state) {
+  if (!state || !Array.isArray(state.members)) return [];
+  const playersList = [];
+  const seen = new Set();
+  for (const member of state.members) {
+    if (!member) continue;
+    const rawId = member.playerId ?? member.player?.id;
+    if (rawId === null || rawId === undefined) continue;
+    const key = String(rawId);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (member.player) {
+      playersList.push(member.player);
+      continue;
+    }
+    const resolved = getPlayerById(rawId);
+    if (resolved) {
+      playersList.push(resolved);
+    }
+  }
+  return playersList;
+}
+
+function sanitizeRaidDirectOptions(options) {
+  if (!options) return undefined;
+  const clone = { ...options };
+  if (clone.reply_markup) {
+    delete clone.reply_markup;
+  }
+  return Object.keys(clone).length > 0 ? clone : undefined;
+}
+
+async function broadcastToRaidParticipants(state, handler) {
+  if (!state || typeof handler !== 'function') return;
+  const participantIds = getRaidParticipantChatIds(state);
+  for (const participantId of participantIds) {
+    try {
+      await handler(participantId);
+    } catch (err) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('raid participant notify error:', err?.message || err);
+      }
+    }
+  }
+}
+
+async function sendRaidMessage(state, text, options = undefined) {
+  if (!state) return null;
+  let sent = null;
+  try {
+    sent = await bot.sendMessage(state.chatId, text, options);
+  } catch (err) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('raid message send error:', err?.message || err);
+    }
+  }
+  const sanitized = sanitizeRaidDirectOptions(options);
+  await broadcastToRaidParticipants(state, async (participantId) => {
+    await bot.sendMessage(participantId, text, sanitized);
+  });
+  return sent;
+}
+
+async function sendRaidPhoto(state, photo, options = undefined) {
+  if (!state) return null;
+  let sent = null;
+  try {
+    sent = await bot.sendPhoto(state.chatId, photo, options);
+  } catch (err) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('raid photo send error:', err?.message || err);
+    }
+  }
+  const sanitized = sanitizeRaidDirectOptions(options);
+  await broadcastToRaidParticipants(state, async (participantId) => {
+    await bot.sendPhoto(participantId, photo, sanitized);
+  });
+  return sent;
+}
+
+async function notifyClanMembersRaidStart(clan) {
+  if (!clan || !Array.isArray(clan.members) || clan.members.length === 0) return;
+  const text = 'Ваш клан начал рейд миссию! Отправьте /acceptmission если хотите вступить в лобби!';
+  const notified = new Set();
+  for (const memberId of clan.members) {
+    if (memberId === null || memberId === undefined) continue;
+    const key = String(memberId);
+    if (notified.has(key)) continue;
+    notified.add(key);
+    const numeric = Number(memberId);
+    const target = Number.isFinite(numeric) ? numeric : memberId;
+    try {
+      await bot.sendMessage(target, text);
+    } catch (err) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('clan raid notify error:', err?.message || err);
+      }
+    }
+  }
+}
+
 function createRaidMemberState(player) {
   if (!player) return null;
   applyArmorHelmetBonuses(player);
@@ -3263,7 +3387,7 @@ function cleanupRaidState(state, reason = null) {
   unregisterRaidState(state);
   state.status = 'finished';
   if (reason) {
-    bot.sendMessage(state.chatId, reason).catch(() => {});
+    sendRaidMessage(state, reason).catch(() => {});
   }
 }
 
@@ -3306,7 +3430,7 @@ async function startRaidStyleSelection(state) {
     '"🔴 Агрессия" - повышает шанс сделать ваших врагов беспомощнее.'
   ].join('\n');
   try {
-    const sent = await bot.sendPhoto(state.chatId, RAID_STYLE_IMAGE, {
+    const sent = await sendRaidPhoto(state, RAID_STYLE_IMAGE, {
       caption,
       reply_markup: buildRaidStyleKeyboard(state.clanId)
     });
@@ -3314,11 +3438,9 @@ async function startRaidStyleSelection(state) {
     state.styleMessageChatId = sent?.chat?.id ?? state.chatId;
   } catch (err) {
     console.error('raid style send error:', err);
-    const fallback = await bot
-      .sendMessage(state.chatId, `${caption}\n(Не удалось отправить изображение)`, {
-        reply_markup: buildRaidStyleKeyboard(state.clanId)
-      })
-      .catch(() => null);
+    const fallback = await sendRaidMessage(state, `${caption}\n(Не удалось отправить изображение)`, {
+      reply_markup: buildRaidStyleKeyboard(state.clanId)
+    }).catch(() => null);
     state.styleMessageId = fallback?.message_id ?? null;
     state.styleMessageChatId = fallback?.chat?.id ?? state.chatId;
   }
@@ -3382,7 +3504,7 @@ async function presentRaidChoice(state, stage) {
   if (!state || !stage) return;
   state.status = 'choice';
   try {
-    const sent = await bot.sendPhoto(state.chatId, stage.choiceImage, {
+    const sent = await sendRaidPhoto(state, stage.choiceImage, {
       caption: stage.choiceText,
       reply_markup: {
         inline_keyboard: [
@@ -3403,16 +3525,14 @@ async function presentRaidChoice(state, stage) {
       messageId: null,
       chatId: state.chatId
     };
-    await bot
-      .sendMessage(state.chatId, stage.choiceText, {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: 'Атаковать', callback_data: `raid_choice:${getRaidStateKey(state.clanId)}:${stage.index}:attack` }],
-            [{ text: 'Скрытно избежать', callback_data: `raid_choice:${getRaidStateKey(state.clanId)}:${stage.index}:stealth` }]
-          ]
-        }
-      })
-      .catch(() => {});
+    await sendRaidMessage(state, stage.choiceText, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Атаковать', callback_data: `raid_choice:${getRaidStateKey(state.clanId)}:${stage.index}:attack` }],
+          [{ text: 'Скрытно избежать', callback_data: `raid_choice:${getRaidStateKey(state.clanId)}:${stage.index}:stealth` }]
+        ]
+      }
+    }).catch(() => {});
   }
 }
 
@@ -3422,10 +3542,10 @@ async function startRaidBattle(state, stage) {
   const caption = stage.type === 'choice' ? stage.battleText : stage.introText;
   const image = stage.type === 'choice' ? stage.battleImage : stage.introImage;
   try {
-    await bot.sendPhoto(state.chatId, image, { caption });
+    await sendRaidPhoto(state, image, { caption });
   } catch (err) {
     console.error('raid battle intro error:', err);
-    await bot.sendMessage(state.chatId, caption).catch(() => {});
+    await sendRaidMessage(state, caption).catch(() => {});
   }
   let enemyDamage = Number(stage.enemyDamage) || 0;
   let aggressionReduced = false;
@@ -3447,9 +3567,7 @@ async function startRaidBattle(state, stage) {
     aggressionReduced
   };
   if (aggressionReduced) {
-    await bot
-      .sendMessage(state.chatId, 'Стиль Агрессия ослабил противника: его урон снижен на 25%.')
-      .catch(() => {});
+    await sendRaidMessage(state, 'Стиль Агрессия ослабил противника: его урон снижен на 25%.').catch(() => {});
   }
   if (state.turnTimeout) {
     clearTimeout(state.turnTimeout);
@@ -3613,16 +3731,16 @@ async function processRaidTurn(state) {
   summaryLines.push(...events);
   if (enemy.hp <= 0) {
     summaryLines.push('', `🩸 HP врага: 0/${enemy.maxHp}`, `❤️ Состояние команды: ${formatRaidTeamHp(state)}`);
-    await bot.sendMessage(state.chatId, summaryLines.filter(Boolean).join('\n')).catch(() => {});
+    await sendRaidMessage(state, summaryLines.filter(Boolean).join('\n')).catch(() => {});
     await handleRaidStageClear(state, stage);
     return;
   }
   const counter = performRaidEnemyAttack(state, member, enemy);
   summaryLines.push(...counter.events);
   summaryLines.push('', `🩸 HP врага: ${Math.max(0, Math.round(enemy.hp))}/${enemy.maxHp}`, `❤️ Состояние команды: ${formatRaidTeamHp(state)}`);
-  await bot.sendMessage(state.chatId, summaryLines.filter(Boolean).join('\n')).catch(() => {});
+  await sendRaidMessage(state, summaryLines.filter(Boolean).join('\n')).catch(() => {});
   if (counter.playerDied) {
-    await bot.sendMessage(state.chatId, `Игрок ${formatPlayerTag(member.player)} умер`).catch(() => {});
+    await sendRaidMessage(state, `Игрок ${formatPlayerTag(member.player)} умер`).catch(() => {});
   }
   if (getRaidAliveMembers(state).length === 0) {
     handleRaidFailure(state, '☠️ Все игроки погибли. Миссия провалена.');
@@ -3668,8 +3786,20 @@ function finalizeRaidReward(state) {
   const clan = clans[String(state.clanId)];
   if (clan) {
     clan.points = (clan.points || 0) + reward;
+    const participants = getRaidParticipantPlayers(state);
+    if (participants.length > 0) {
+      for (const participant of participants) {
+        if (!participant) continue;
+        const current = Number(participant.infection) || 0;
+        participant.infection = current + reward;
+      }
+    }
     saveData();
-    return `🏆 Клан получил ${reward} клановых очков за ${label}.`;
+    const lines = [`🏆 Клан получил ${reward} клановых очков за ${label}.`];
+    if (participants.length > 0) {
+      lines.push(`☣️ Каждый игрок получил ${reward} очков заражения.`);
+    }
+    return lines.join('\n');
   }
   return `Награда ${reward} очков за ${label} не начислена, так как клан не найден.`;
 }
@@ -3697,7 +3827,7 @@ async function handleRaidStageClear(state, stage) {
     if (rewardMessage) {
       lines.push(rewardMessage);
     }
-    await bot.sendMessage(state.chatId, lines.join('\n')).catch(() => {});
+    await sendRaidMessage(state, lines.join('\n')).catch(() => {});
     cleanupRaidState(state);
     return;
   }
@@ -3714,7 +3844,7 @@ async function handleRaidStageClear(state, stage) {
   if (medkitText) {
     lines.push(medkitText);
   }
-  await bot.sendMessage(state.chatId, lines.join('\n')).catch(() => {});
+  await sendRaidMessage(state, lines.join('\n')).catch(() => {});
   state.stagePointer += 1;
   state.status = 'transition';
   state.turnTimeout = setTimeout(() => {
@@ -4759,9 +4889,10 @@ bot.onText(/\/acceptmission(?:@\w+)?/, async (msg) => {
     await bot.sendMessage(chatId, "Не удалось вступить в лобби.");
     return;
   }
-  await bot
-    .sendMessage(state.chatId, `${formatPlayerTag(player)} вступил в лобби. Игроков в лобби ${state.members.length}/${RAID_MAX_PLAYERS}`)
-    .catch(() => {});
+  await sendRaidMessage(
+    state,
+    `${formatPlayerTag(player)} вступил в лобби. Игроков в лобби ${state.members.length}/${RAID_MAX_PLAYERS}`
+  ).catch(() => {});
 });
 
 // /clan_top
@@ -5297,7 +5428,8 @@ if (dataCb === "clans_raid_mission") {
     `Игроков в лобби ${state.members.length}/${RAID_MAX_PLAYERS}`,
     'Старт через 130 секунд...'
   ].join('\n');
-  await bot.sendMessage(chatId, introText).catch(() => {});
+  await sendRaidMessage(state, introText).catch(() => {});
+  await notifyClanMembersRaidStart(clan).catch(() => {});
   scheduleRaidStyleSelection(state);
   return;
 }
@@ -5335,7 +5467,7 @@ if (typeof dataCb === 'string' && dataCb.startsWith('raid_style:')) {
       })
       .catch(() => {});
   }
-  await bot.sendMessage(state.chatId, `Вы выбрали стиль ${option.display}. Желаю вернуться живыми!`).catch(() => {});
+  await sendRaidMessage(state, `Вы выбрали стиль ${option.display}. Желаю вернуться живыми!`).catch(() => {});
   if (state.turnTimeout) {
     clearTimeout(state.turnTimeout);
     state.turnTimeout = null;
@@ -5383,10 +5515,10 @@ if (typeof dataCb === 'string' && dataCb.startsWith('raid_choice:')) {
     const chance = state.style === 'stealth' ? stage.stealthChanceStealth : stage.stealthChanceDefault;
     const success = Math.random() < chance;
     if (success) {
-      await bot.sendMessage(state.chatId, 'Поздравляем! Вы смогли прокрасться без лишнего шума ко следующей комнате подвала!').catch(() => {});
+      await sendRaidMessage(state, 'Поздравляем! Вы смогли прокрасться без лишнего шума ко следующей комнате подвала!').catch(() => {});
       await handleRaidStageClear(state, stage);
     } else {
-      await bot.sendMessage(state.chatId, 'Вас заметили! Вам п***!').catch(() => {});
+      await sendRaidMessage(state, 'Вас заметили! Вам п***!').catch(() => {});
       await startRaidBattle(state, stage);
     }
     return;
