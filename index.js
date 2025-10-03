@@ -1304,7 +1304,7 @@ function mainMenuKeyboard() {
       [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard_menu" }],
       [{ text: "⚔️ PvP", callback_data: "pvp_menu" }],
       [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
-      [{ text: "👥 Комьюнити", callback_data: "resources" }]
+      [{ text: "👥 Коммьюнити", callback_data: "community" }]
     ]
   };
 }
@@ -5183,7 +5183,7 @@ bot.on("callback_query", async (q) => {
   }
   // === /Ограничение кнопок ===
   let player = ensurePlayer(user);
-  if (dataCb === "resources") {
+  if (dataCb === "community") {
     const text = "📚 Полезные ресурсы\nВыбери, куда перейти:";
     await editOrSend(chatId, messageId, text, {
       reply_markup: resourcesKeyboard(),
