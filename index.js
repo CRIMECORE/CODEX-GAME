@@ -2092,28 +2092,88 @@ function generateRankedOpponentPlayer(player) {
   return opponent;
 }
 
+function getMessageText(message) {
+  if (!message) return null;
+  if (typeof message.text === 'string') return message.text;
+  if (typeof message.caption === 'string') return message.caption;
+  return null;
+}
+
+function inlineKeyboardSignature(markup) {
+  if (!markup || !Array.isArray(markup.inline_keyboard)) return '';
+  return markup.inline_keyboard
+    .map((row) =>
+      Array.isArray(row)
+        ? row
+            .map((btn) =>
+              [
+                btn?.text || '',
+                btn?.callback_data || '',
+                btn?.url || '',
+                btn?.switch_inline_query || '',
+                btn?.switch_inline_query_current_chat || '',
+                btn?.pay ? 'pay' : ''
+              ].join('|')
+            )
+            .join(';')
+        : ''
+    )
+    .join('||');
+}
+
+function areInlineKeyboardsEqual(a, b) {
+  return inlineKeyboardSignature(a) === inlineKeyboardSignature(b);
+}
+
+function normalizeText(text) {
+  return text === null || typeof text === 'undefined' ? '' : String(text);
+}
+
+function isMessageNotModifiedError(err) {
+  const description =
+    err?.response?.body?.description || err?.response?.description || err?.message || '';
+  return typeof description === 'string' && description.includes('message is not modified');
+}
+
 async function editOrSend(chatId, messageId, text, options = {}) {
-  const { reply_markup } = options;
-  const parseMode = Object.prototype.hasOwnProperty.call(options, 'parse_mode') ? options.parse_mode : 'Markdown';
+  const { reply_markup, existingMessage = null } = options;
+  const parseMode = Object.prototype.hasOwnProperty.call(options, 'parse_mode')
+    ? options.parse_mode
+    : 'Markdown';
+
   const messageOptions = {};
   if (reply_markup) messageOptions.reply_markup = reply_markup;
   if (parseMode) messageOptions.parse_mode = parseMode;
 
-  try {
-    if (messageId) {
+  const sendNewMessage = async () => {
+    return await bot.sendMessage(chatId, text, messageOptions);
+  };
+
+  if (messageId) {
+    try {
       const editParams = { chat_id: chatId, message_id: messageId };
       if (reply_markup) editParams.reply_markup = reply_markup;
       if (parseMode) editParams.parse_mode = parseMode;
-      await bot.editMessageText(text, editParams);
-      return;
-    } else {
-      await bot.sendMessage(chatId, text, messageOptions);
-      return;
+      return await bot.editMessageText(text, editParams);
+    } catch (e) {
+      if (isMessageNotModifiedError(e)) {
+        return null;
+      }
+
+      if (existingMessage) {
+        const currentText = getMessageText(existingMessage);
+        const sameText = normalizeText(currentText) === normalizeText(text);
+        const sameMarkup = areInlineKeyboardsEqual(existingMessage.reply_markup, reply_markup);
+        if (sameText && sameMarkup) {
+          return existingMessage;
+        }
+      }
+
+      return await sendNewMessage();
     }
-  } catch (e) {
-    await bot.sendMessage(chatId, text, messageOptions);
-    return;
   }
+
+  return await sendNewMessage();
 }
 
 function mainMenuKeyboard() {
@@ -3519,7 +3579,10 @@ bot.on("callback_query", async (q) => {
     let player = ensurePlayer(user);
 // --- Обработчики для кнопок главного меню: PvP и Кланы ---
 if (dataCb === "pvp_request" || dataCb === "pvp_menu") {
-  await editOrSend(chatId, messageId, "⚔️ Выберите режим PvP:", { reply_markup: pvpMenuKeyboard() });
+  await editOrSend(chatId, messageId, "⚔️ Выберите режим PvP:", {
+    reply_markup: pvpMenuKeyboard(),
+    existingMessage: q.message
+  });
   return;
 }
 
@@ -3609,14 +3672,19 @@ if (dataCb === "pvp_ranked") {
 if (dataCb === "pvp_leaderboard") {
   const text = buildPvpRatingLeaderboardText(player);
   await editOrSend(chatId, messageId, text, {
-    reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "pvp_menu" }]] }
+    reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "pvp_menu" }]] },
+    existingMessage: q.message
   });
   return;
 }
 
 if (dataCb === "clans_menu") {
   const text = "🏰 Кланы\n\nВыбери раздел, чтобы узнать подробности.";
-  await editOrSend(chatId, messageId, text, { reply_markup: clansMenuKeyboard(), parse_mode: null });
+  await editOrSend(chatId, messageId, text, {
+    reply_markup: clansMenuKeyboard(),
+    parse_mode: null,
+    existingMessage: q.message
+  });
   return;
 }
 
@@ -3626,10 +3694,14 @@ if (dataCb === "clans_top") {
   if (!text) {
     await editOrSend(chatId, messageId, "Пока нет зарегистрированных кланов.", {
       reply_markup: replyMarkup,
-      parse_mode: null
+      parse_mode: null,
+      existingMessage: q.message
     });
   } else {
-    await editOrSend(chatId, messageId, text, { reply_markup: replyMarkup });
+    await editOrSend(chatId, messageId, text, {
+      reply_markup: replyMarkup,
+      existingMessage: q.message
+    });
   }
   return;
 }
@@ -3648,7 +3720,8 @@ if (dataCb === "clans_create_join") {
     "Отправь нужную команду в чат, чтобы выполнить действие."
   ].join("\n");
   await editOrSend(chatId, messageId, text, {
-    reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "clans_menu" }]] }
+    reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "clans_menu" }]] },
+    existingMessage: q.message
   });
   return;
 }
@@ -3666,7 +3739,8 @@ if (dataCb === "clans_battle_info") {
     "Следите за списком заявок и своевременно принимайте подходящие бои, чтобы не упустить шанс заработать очки!"
   ].join("\n");
   await editOrSend(chatId, messageId, text, {
-    reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "clans_menu" }]] }
+    reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "clans_menu" }]] },
+    existingMessage: q.message
   });
   return;
 }
@@ -3754,7 +3828,10 @@ if (dataCb === "play") {
 
 
 if (dataCb === "loot_menu") {
-    await editOrSend(chatId, messageId, "📦 Меню лута — выбери:", { reply_markup: lootMenuKeyboard() });
+    await editOrSend(chatId, messageId, "📦 Меню лута — выбери:", {
+        reply_markup: lootMenuKeyboard(),
+        existingMessage: q.message
+    });
     return;
 }
 
@@ -3782,7 +3859,8 @@ if (dataCb === "invite_friend") {
 
     await editOrSend(chatId, messageId, inviteText, {
         reply_markup: keyboard,
-        parse_mode: "Markdown"
+        parse_mode: "Markdown",
+        existingMessage: q.message
     });
     return;
 }
@@ -3791,7 +3869,8 @@ if (dataCb === "invite_case_open") {
     const available = Number(player.inviteCasesAvailable) || 0;
     if (available <= 0) {
         await editOrSend(chatId, messageId, "❌ У вас нет доступных кейсов за приглашения. Пригласите нового игрока по вашей ссылке.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] },
+            existingMessage: q.message
         });
         return;
     }
@@ -3799,7 +3878,8 @@ if (dataCb === "invite_case_open") {
     const picked = pickFromSubscriptionPool();
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] },
+            existingMessage: q.message
         });
         return;
     }
@@ -3817,7 +3897,8 @@ if (dataCb === "infection_case") {
 
     if (currentInfection < cost) {
         await editOrSend(chatId, messageId, "⚠️ У вас недостаточно очков заражения.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] },
+            existingMessage: q.message
         });
         return;
     }
@@ -3825,7 +3906,8 @@ if (dataCb === "infection_case") {
     const picked = pickFromSubscriptionPool();
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] },
+            existingMessage: q.message
         });
         return;
     }
@@ -3842,7 +3924,8 @@ if (dataCb === "sign_case") {
 
     if (currentInfection < cost) {
         await editOrSend(chatId, messageId, "⚠️ У вас недостаточно очков заражения.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] },
+            existingMessage: q.message
         });
         return;
     }
@@ -3850,7 +3933,8 @@ if (dataCb === "sign_case") {
     const picked = pickRandomSignCaseItem();
     if (!picked) {
         await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать знак. Попробуйте позже.", {
-            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }
+            reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] },
+            existingMessage: q.message
         });
         return;
     }
@@ -3873,20 +3957,26 @@ if (dataCb === "free_gift") {
         if (status === "left" || status === "kicked") {
             await editOrSend(chatId, messageId,
                 `❌ Вы не подписаны на канал ${FREE_GIFT_CHANNEL}. Подпишитесь и нажмите «Проверить подписку» снова.`,
-                { reply_markup: {
-                    inline_keyboard: [
-                        [{ text: "📢 Открыть канал", url: `https://t.me/${String(FREE_GIFT_CHANNEL).replace(/^@/, "")}` }],
-                        [{ text: "✅ Проверить подписку", callback_data: "free_gift" }],
-                        [{ text: "⬅️ Назад", callback_data: "loot_menu" }]
-                    ]
-                }});
+                {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: "📢 Открыть канал", url: `https://t.me/${String(FREE_GIFT_CHANNEL).replace(/^@/, "")}` }],
+                            [{ text: "✅ Проверить подписку", callback_data: "free_gift" }],
+                            [{ text: "⬅️ Назад", callback_data: "loot_menu" }]
+                        ]
+                    },
+                    existingMessage: q.message
+                });
             return;
         }
     } catch (err) {
         console.error("Ошибка проверки подписки:", err);
         await editOrSend(chatId, messageId,
             `❌ Не удалось проверить подписку. Убедитесь, что канал ${FREE_GIFT_CHANNEL} существует и публичный.`,
-            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+            {
+                reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] },
+                existingMessage: q.message
+            });
         return;
     }
 
@@ -3897,7 +3987,10 @@ if (dataCb === "free_gift") {
         const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
         await editOrSend(chatId, messageId,
             `⌛ Вы уже забирали бесплатный подарок. Следующий можно получить через ${hours} ч ${minutes} мин.`,
-            { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+            {
+                reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] },
+                existingMessage: q.message
+            });
         return;
     }
 
@@ -3907,7 +4000,7 @@ if (dataCb === "free_gift") {
     const picked = pickFromSubscriptionPool();
 
     if (!picked) {
-        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] } });
+        await editOrSend(chatId, messageId, "⚠️ Не удалось сгенерировать предмет. Попробуйте позже.", { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "loot_menu" }]] }, existingMessage: q.message });
         return;
     }
 
@@ -4336,13 +4429,17 @@ if (dataCb === "attack") {
         text += `\n\n🎁 Выпало: ${escMd(picked.name)}\nЧто делать?`;
         saveData();
         await editOrSend(chatId, messageId, text, {
-          reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }], [{ text: "🗑️ Выбросить", callback_data: "discard_drop" }]] }
+          reply_markup: { inline_keyboard: [[{ text: "✅ Взять", callback_data: "take_drop" }], [{ text: "🗑️ Выбросить", callback_data: "discard_drop" }]] },
+          existingMessage: q.message
         });
         return;
       }
     }
     saveData();
-    await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+    await editOrSend(chatId, messageId, text, {
+      reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] },
+      existingMessage: q.message
+    });
     return;
   } else {
     // BAD эффект
@@ -4356,7 +4453,10 @@ if (dataCb === "attack") {
       }
     }
     saveData();
-    await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+    await editOrSend(chatId, messageId, text, {
+      reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] },
+      existingMessage: q.message
+    });
     return;
   }
 }
@@ -4391,8 +4491,14 @@ if (dataCb === "attack") {
     applyArmorHelmetBonuses(player);
     saveData();
 
-    if (prev) await editOrSend(chatId, messageId, `✅ Предмет заменён: ${escMd(prev.name)} → ${escMd(item.name)}`, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
-    else await editOrSend(chatId, messageId, `✅ Вы взяли: ${escMd(item.name)}`, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+    if (prev) await editOrSend(chatId, messageId, `✅ Предмет заменён: ${escMd(prev.name)} → ${escMd(item.name)}`, {
+      reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] },
+      existingMessage: q.message
+    });
+    else await editOrSend(chatId, messageId, `✅ Вы взяли: ${escMd(item.name)}`, {
+      reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] },
+      existingMessage: q.message
+    });
 
     return;
   }
@@ -4400,7 +4506,10 @@ if (dataCb === "attack") {
   if (dataCb === "discard_drop") {
     player.pendingDrop = null;
     saveData();
-    await editOrSend(chatId, messageId, `🗑️ Предмет выброшен.`, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+    await editOrSend(chatId, messageId, `🗑️ Предмет выброшен.`, {
+      reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] },
+      existingMessage: q.message
+    });
     return;
   }
 
@@ -4437,7 +4546,10 @@ if (dataCb === "attack") {
 
   if (dataCb === "leaderboard") {
     const text = buildSurvivalLeaderboardText(player);
-    await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
+    await editOrSend(chatId, messageId, text, {
+      reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] },
+      existingMessage: q.message
+    });
     return;
   }
 });
