@@ -1345,6 +1345,7 @@ function leaderboardResultKeyboard() {
 function clansMenuKeyboard() {
   return {
     inline_keyboard: [
+      [{ text: "❗ Рейд миссия", callback_data: "clans_raid_mission" }],
       [{ text: "Создать / принять клан", callback_data: "clans_create_join" }],
       [{ text: "Клановая битва", callback_data: "clans_battle_info" }],
       [{ text: "⚔️ Захват чата", callback_data: "clans_assault_info" }],
@@ -3055,6 +3056,623 @@ let clanBattleCountdown = null;
 let clanBattleCountdownMsg = null;
 let pendingCountdownForClans = null; // [clanAId, clanBId]
 
+// ---- Raid mission configuration ----
+const clanRaidMissions = Object.create(null); // clanId -> state
+const RAID_MAX_PLAYERS = 5;
+const RAID_LOBBY_DURATION_MS = 130 * 1000;
+const RAID_DEFAULT_MEDKIT_CHANCE = 0.2;
+const RAID_INTELLECT_MEDKIT_CHANCE = 0.7;
+const RAID_MEDKIT_HEAL = 200;
+const RAID_STYLE_IMAGE = 'https://i.postimg.cc/9XJpSBNK/photo-2025-10-03-06-43-43.jpg';
+
+const RAID_STYLE_OPTIONS = {
+  stealth: { key: 'stealth', label: 'Скрытность', display: 'Скрытность', emoji: '🔵' },
+  intellect: { key: 'intellect', label: 'Интелект', display: 'Интелект', emoji: '🟡' },
+  aggression: { key: 'aggression', label: 'Агрессия', display: 'Агрссия', emoji: '🔴' }
+};
+
+const RAID_STAGES = [
+  {
+    index: 1,
+    key: 'stage1',
+    type: 'battle',
+    reward: 100,
+    introImage: 'https://i.postimg.cc/qRQ8PkQb/photo-2025-10-03-06-09-45.jpg',
+    introText: '1я комната подвала\n🩸 Ты встретил Зараженные крысы\nHP: 370/370\nУрон: 30',
+    enemyName: 'Зараженные крысы',
+    enemyHp: 370,
+    enemyDamage: 30
+  },
+  {
+    index: 2,
+    key: 'stage2',
+    type: 'battle',
+    reward: 350,
+    introImage: 'https://i.postimg.cc/PxFCbN2B/photo-2025-10-03-06-09-49.jpg',
+    introText: '2я комната подвала\n🩸 Ты встретил Скауты\nHP: 2650/2650\nУрон: 320',
+    enemyName: 'Скауты',
+    enemyHp: 2650,
+    enemyDamage: 320
+  },
+  {
+    index: 3,
+    key: 'stage3',
+    type: 'choice',
+    reward: 700,
+    choiceImage: 'https://i.postimg.cc/zD6LVbLB/photo-2025-10-03-06-09-46.jpg',
+    choiceText: '3я комната подвала\n🩸 Ты встретил Компьютер',
+    battleImage: 'https://i.postimg.cc/vZdctJtg/photo-2025-10-03-06-09-50.jpg',
+    battleText: '3я комната подвала\n🩸 Ты встретил Компьютер\nHP: 3000/3000\nУрон: 440',
+    enemyName: 'Компьютер',
+    enemyHp: 3000,
+    enemyDamage: 440,
+    stealthChanceDefault: 0.1,
+    stealthChanceStealth: 0.7
+  },
+  {
+    index: 4,
+    key: 'stage4',
+    type: 'battle',
+    reward: 1500,
+    introImage: 'https://i.postimg.cc/VNfv3XTk/photo-2025-10-03-06-09-44.jpg',
+    introText: '4я комната подвала\n🩸 Ты встретил Охрана\nHP: 7300/7300\nУрон: 675',
+    enemyName: 'Охрана',
+    enemyHp: 7300,
+    enemyDamage: 675
+  },
+  {
+    index: 5,
+    key: 'stage5',
+    type: 'choice',
+    reward: 3000,
+    choiceImage: 'https://i.postimg.cc/PfPK8R4c/photo-2025-10-03-06-09-47.jpg',
+    choiceText: '5я комната подвала\n🩸 Ты встретил Тихие подопытные',
+    battleImage: 'https://i.postimg.cc/wjckp8qF/photo-2025-10-03-06-09-50-2.jpg',
+    battleText: '5я комната подвала\n🩸 Ты встретил Усиленная охрана\nHP: 8500/8500\nУрон: 730',
+    enemyName: 'Усиленная охрана',
+    enemyHp: 8500,
+    enemyDamage: 730,
+    stealthChanceDefault: 0.1,
+    stealthChanceStealth: 0.7
+  },
+  {
+    index: 6,
+    key: 'stage6',
+    type: 'battle',
+    reward: 5000,
+    introImage: 'https://i.postimg.cc/d1DRrh8y/photo-2025-10-03-06-09-48.jpg',
+    introText: '6я комната подвала\n🩸 Ты встретил Обезумевшая\nHP: 9500/9500\nУрон: 920',
+    enemyName: 'Обезумевшая',
+    enemyHp: 9500,
+    enemyDamage: 920
+  },
+  {
+    index: 7,
+    key: 'stage7',
+    type: 'battle',
+    reward: 7500,
+    introImage: 'https://i.postimg.cc/bYDHv2Yv/photo-2025-10-03-06-09-54.jpg',
+    introText: '7я комната подвала - Лабаратория\n🩸 Ты встретил Спец охрана\nHP: 12100/12100\nУрон: 1250',
+    enemyName: 'Спец охрана',
+    enemyHp: 12100,
+    enemyDamage: 1250
+  },
+  {
+    index: 8,
+    key: 'stage8',
+    type: 'battle',
+    reward: 15000,
+    introImage: 'https://i.postimg.cc/X79ffSCS/photo-2025-10-03-06-09-55.jpg',
+    introText: '8я комната подвала - Лабаратория\n🩸 Ты встретил Зубастики\nHP: 14500/14500\nУрон: 1550',
+    enemyName: 'Зубастики',
+    enemyHp: 14500,
+    enemyDamage: 1550
+  },
+  {
+    index: 9,
+    key: 'stage9',
+    type: 'battle',
+    reward: 25000,
+    introImage: 'https://i.postimg.cc/HLvXYTfM/photo-2025-10-03-06-09-55-2.jpg',
+    introText: '9я комната подвала - Финал\n🩸 Ты встретил Босс тьма\nHP: 17000/17000\nУрон: 2150',
+    enemyName: 'Босс тьма',
+    enemyHp: 17000,
+    enemyDamage: 2150
+  }
+];
+
+function getRaidStateKey(clanId) {
+  return clanId == null ? null : String(clanId);
+}
+
+function findRaidStateByClan(clanId) {
+  const key = getRaidStateKey(clanId);
+  if (!key) return null;
+  return clanRaidMissions[key] || null;
+}
+
+function registerRaidState(state) {
+  const key = getRaidStateKey(state?.clanId);
+  if (!key) return;
+  clanRaidMissions[key] = state;
+}
+
+function unregisterRaidState(state) {
+  const key = getRaidStateKey(state?.clanId);
+  if (!key) return;
+  if (clanRaidMissions[key] === state) {
+    delete clanRaidMissions[key];
+  }
+}
+
+function createRaidMemberState(player) {
+  if (!player) return null;
+  applyArmorHelmetBonuses(player);
+  return {
+    player,
+    playerId: player.id,
+    hp: player.maxHp || 100,
+    maxHp: player.maxHp || 100,
+    damageBoostTurns: 0,
+    damageReductionTurns: 0,
+    stunTurns: 0,
+    signRadiationUsed: false,
+    signFinalUsed: false,
+    dead: false
+  };
+}
+
+function getRaidAliveMembers(state) {
+  if (!state || !Array.isArray(state.members)) return [];
+  return state.members.filter((m) => m && !m.dead && m.hp > 0);
+}
+
+function formatRaidTeamHp(state) {
+  if (!state || !Array.isArray(state.members) || state.members.length === 0) return '—';
+  return state.members
+    .map((member) => {
+      if (!member || !member.player) return '—';
+      const hpValue = Math.max(0, Math.round(member.hp || 0));
+      return `${formatPlayerTag(member.player)} ${hpValue}/${member.maxHp}`;
+    })
+    .join(' | ');
+}
+
+function getRaidMedkitChance(state) {
+  if (!state) return RAID_DEFAULT_MEDKIT_CHANCE;
+  return state.style === 'intellect' ? RAID_INTELLECT_MEDKIT_CHANCE : RAID_DEFAULT_MEDKIT_CHANCE;
+}
+
+function cleanupRaidTimers(state) {
+  if (!state) return;
+  if (state.countdownTimer) {
+    clearTimeout(state.countdownTimer);
+    state.countdownTimer = null;
+  }
+  if (state.turnTimeout) {
+    clearTimeout(state.turnTimeout);
+    state.turnTimeout = null;
+  }
+}
+
+function cleanupRaidState(state, reason = null) {
+  if (!state) return;
+  cleanupRaidTimers(state);
+  unregisterRaidState(state);
+  state.status = 'finished';
+  if (reason) {
+    bot.sendMessage(state.chatId, reason).catch(() => {});
+  }
+}
+
+function buildRaidStyleKeyboard(clanId) {
+  const key = getRaidStateKey(clanId) || '';
+  return {
+    inline_keyboard: Object.values(RAID_STYLE_OPTIONS).map((option) => [
+      {
+        text: `${option.emoji} ${option.label}`,
+        callback_data: `raid_style:${key}:${option.key}`
+      }
+    ])
+  };
+}
+
+function raidStyleDisplay(styleKey) {
+  const option = RAID_STYLE_OPTIONS[styleKey];
+  return option ? option.display : '';
+}
+
+function scheduleRaidStyleSelection(state) {
+  if (!state) return;
+  if (state.countdownTimer) {
+    clearTimeout(state.countdownTimer);
+    state.countdownTimer = null;
+  }
+  state.countdownTimer = setTimeout(() => {
+    state.countdownTimer = null;
+    startRaidStyleSelection(state).catch((err) => console.error('raid style selection error:', err));
+  }, RAID_LOBBY_DURATION_MS);
+}
+
+async function startRaidStyleSelection(state) {
+  if (!state || state.status !== 'lobby') return;
+  state.status = 'style_selection';
+  const caption = [
+    'Вам требуется выбрать один из стилей игры:',
+    '"🔵 Скрытность" - повышает ваш шанс прохождения комнат без лишнего шума и потерь',
+    '"🟡 Интелект" - повышает ваш шанс на вскрытие безопасных зон.',
+    '"🔴 Агрессия" - повышает шанс сделать ваших врагов беспомощнее.'
+  ].join('\n');
+  try {
+    const sent = await bot.sendPhoto(state.chatId, RAID_STYLE_IMAGE, {
+      caption,
+      reply_markup: buildRaidStyleKeyboard(state.clanId)
+    });
+    state.styleMessageId = sent?.message_id ?? null;
+    state.styleMessageChatId = sent?.chat?.id ?? state.chatId;
+  } catch (err) {
+    console.error('raid style send error:', err);
+    const fallback = await bot
+      .sendMessage(state.chatId, `${caption}\n(Не удалось отправить изображение)`, {
+        reply_markup: buildRaidStyleKeyboard(state.clanId)
+      })
+      .catch(() => null);
+    state.styleMessageId = fallback?.message_id ?? null;
+    state.styleMessageChatId = fallback?.chat?.id ?? state.chatId;
+  }
+}
+
+function getRaidMemberById(state, playerId) {
+  if (!state || !Array.isArray(state.members)) return null;
+  return (
+    state.members.find((member) => Number(member.playerId) === Number(playerId)) || null
+  );
+}
+
+function addPlayerToRaid(state, player) {
+  if (!state || !player) return { success: false, reason: 'invalid' };
+  if (!state.memberIds) state.memberIds = new Set();
+  if (state.memberIds.has(player.id)) return { success: false, reason: 'already' };
+  if (!Array.isArray(state.members)) state.members = [];
+  if (state.members.length >= RAID_MAX_PLAYERS) return { success: false, reason: 'full' };
+  const member = createRaidMemberState(player);
+  if (!member) return { success: false, reason: 'invalid' };
+  state.members.push(member);
+  state.memberIds.add(player.id);
+  return { success: true, member };
+}
+
+async function startRaidStage(state) {
+  if (!state || state.status === 'finished') return;
+  if (state.stagePointer == null) state.stagePointer = 0;
+  if (state.stagePointer >= RAID_STAGES.length) {
+    cleanupRaidState(state);
+    return;
+  }
+  const stage = RAID_STAGES[state.stagePointer];
+  state.currentStage = stage;
+  state.currentEnemy = null;
+  state.turnIndex = 0;
+  state.pendingChoice = null;
+  const alive = getRaidAliveMembers(state);
+  if (alive.length === 0) {
+    handleRaidFailure(state, '☠️ Все игроки погибли. Миссия провалена.');
+    return;
+  }
+  for (const member of state.members) {
+    if (!member) continue;
+    if (member.hp <= 0) {
+      member.hp = 0;
+      member.dead = true;
+      continue;
+    }
+    member.damageBoostTurns = 0;
+    member.damageReductionTurns = 0;
+  }
+  if (stage.type === 'choice') {
+    await presentRaidChoice(state, stage);
+  } else {
+    await startRaidBattle(state, stage);
+  }
+}
+
+async function presentRaidChoice(state, stage) {
+  if (!state || !stage) return;
+  state.status = 'choice';
+  try {
+    const sent = await bot.sendPhoto(state.chatId, stage.choiceImage, {
+      caption: stage.choiceText,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Атаковать', callback_data: `raid_choice:${getRaidStateKey(state.clanId)}:${stage.index}:attack` }],
+          [{ text: 'Скрытно избежать', callback_data: `raid_choice:${getRaidStateKey(state.clanId)}:${stage.index}:stealth` }]
+        ]
+      }
+    });
+    state.pendingChoice = {
+      stageIndex: stage.index,
+      messageId: sent?.message_id ?? null,
+      chatId: sent?.chat?.id ?? state.chatId
+    };
+  } catch (err) {
+    console.error('raid choice send error:', err);
+    state.pendingChoice = {
+      stageIndex: stage.index,
+      messageId: null,
+      chatId: state.chatId
+    };
+    await bot
+      .sendMessage(state.chatId, stage.choiceText, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'Атаковать', callback_data: `raid_choice:${getRaidStateKey(state.clanId)}:${stage.index}:attack` }],
+            [{ text: 'Скрытно избежать', callback_data: `raid_choice:${getRaidStateKey(state.clanId)}:${stage.index}:stealth` }]
+          ]
+        }
+      })
+      .catch(() => {});
+  }
+}
+
+async function startRaidBattle(state, stage) {
+  if (!state || !stage) return;
+  state.status = 'battle';
+  const caption = stage.type === 'choice' ? stage.battleText : stage.introText;
+  const image = stage.type === 'choice' ? stage.battleImage : stage.introImage;
+  try {
+    await bot.sendPhoto(state.chatId, image, { caption });
+  } catch (err) {
+    console.error('raid battle intro error:', err);
+    await bot.sendMessage(state.chatId, caption).catch(() => {});
+  }
+  state.currentEnemy = {
+    name: stage.enemyName,
+    hp: stage.enemyHp,
+    maxHp: stage.enemyHp,
+    damage: stage.enemyDamage,
+    stun: 0
+  };
+  if (state.turnTimeout) {
+    clearTimeout(state.turnTimeout);
+    state.turnTimeout = null;
+  }
+  state.turnTimeout = setTimeout(() => {
+    processRaidTurn(state).catch((err) => console.error('raid turn error:', err));
+  }, 2500);
+}
+
+function applyRaidExtraEffect(member, enemy, events) {
+  const player = member?.player;
+  if (!player || !player.inventory || !player.inventory.extra || !enemy) return;
+  if (Math.random() >= 0.3) return;
+  const extra = player.inventory.extra;
+  const name = extra?.name || 'предмет';
+  if (extra.effect === 'stun2') {
+    const turns = extra.turns || 2;
+    enemy.stun = Math.max(enemy.stun || 0, turns);
+    events.push(`🧨 ${formatPlayerTag(player)} использует ${name}: враг оглушён на ${turns} ход(ов).`);
+  } else if (extra.effect === 'damage50') {
+    enemy.hp -= 50;
+    events.push(`💥 ${formatPlayerTag(player)} использует ${name}: наносит 50 урона врагу.`);
+  } else if (extra.effect === 'damage100') {
+    enemy.hp -= 100;
+    events.push(`💥 ${formatPlayerTag(player)} использует ${name}: наносит 100 урона врагу.`);
+  } else if (extra.effect === 'halfDamage1') {
+    member.damageReductionTurns = extra.turns || 1;
+    events.push(`💪 ${formatPlayerTag(player)} использует ${name}: входящий урон /2 на ${member.damageReductionTurns} ход(ов).`);
+  } else if (extra.effect === 'doubleDamage1') {
+    member.damageBoostTurns = extra.turns || 1;
+    events.push(`⚡ ${formatPlayerTag(player)} использует ${name}: урон x2 на ${member.damageBoostTurns} ход(ов).`);
+  }
+  if (enemy.hp < 0) enemy.hp = 0;
+}
+
+function raidTryUseSignProtection(member, sign, enemy) {
+  if (!member || member.hp > 0 || !sign) return null;
+  const player = member.player;
+  const effects = getSignEffects(sign);
+  if (!effects.preventLethal) return null;
+  if (effects.preventLethal === 'radiation' && !member.signRadiationUsed) {
+    member.signRadiationUsed = true;
+    member.hp = 1;
+    member.dead = false;
+    if (effects.extraTurn && enemy) {
+      enemy.stun = Math.max(enemy.stun || 0, 1);
+    }
+    return `☢️ ${sign.name} спасает ${formatPlayerTag(player)} от смерти${effects.extraTurn ? ', и враг пропускает следующий ход!' : '!'}`;
+  }
+  if (effects.preventLethal === 'final' && effects.fullHeal && !member.signFinalUsed) {
+    member.signFinalUsed = true;
+    member.hp = member.maxHp;
+    member.dead = false;
+    return `🛡️ ${sign.name} полностью восстанавливает ${formatPlayerTag(player)}!`;
+  }
+  return null;
+}
+
+function performRaidPlayerAttack(state, member, enemy) {
+  const events = [];
+  const player = member?.player;
+  if (!player || !enemy) return events;
+  applyRaidExtraEffect(member, enemy, events);
+  const weaponName = player.inventory?.weapon?.name || 'кулаки';
+  const weaponBonus = player.inventory?.weapon?.dmg || 0;
+  const baseRoll = Math.floor(Math.random() * 30) + 10;
+  let damage = baseRoll + weaponBonus;
+  const mutationCrit = player.inventory?.mutation?.crit || 0;
+  if (mutationCrit > 0 && Math.random() < mutationCrit) {
+    damage *= 2;
+    events.push(`💥 ${formatPlayerTag(player)} наносит критический удар (${weaponName}) на ${damage} урона!`);
+  }
+  if (member.damageBoostTurns && member.damageBoostTurns > 0) {
+    damage *= 2;
+    member.damageBoostTurns--;
+    events.push(`⚡ ${formatPlayerTag(player)} наносит усиленный удар (x2 урон).`);
+  }
+  if (damage < 0) damage = 0;
+  enemy.hp -= damage;
+  if (enemy.hp < 0) enemy.hp = 0;
+  events.push(`⚔️ ${formatPlayerTag(player)} атакует ${enemy.name}: ${damage} урона.`);
+  const sign = player.inventory?.sign;
+  const effects = getSignEffects(sign);
+  if (damage > 0 && effects.vampirism > 0) {
+    const healAmount = Math.max(1, Math.ceil(damage * effects.vampirism));
+    const beforeHp = member.hp;
+    member.hp = Math.min(member.maxHp, member.hp + healAmount);
+    const healed = member.hp - beforeHp;
+    if (healed > 0) {
+      events.push(`🩸 ${formatPlayerTag(player)} восстанавливает ${healed} HP благодаря знаку.`);
+    }
+  }
+  return events;
+}
+
+function performRaidEnemyAttack(state, member, enemy) {
+  const events = [];
+  if (!member || !enemy) return { events, playerDied: false };
+  const player = member.player;
+  if (enemy.stun && enemy.stun > 0) {
+    enemy.stun -= 1;
+    events.push(`⚠️ ${enemy.name} оглушён и пропускает ход (${enemy.stun} осталось).`);
+    return { events, playerDied: false };
+  }
+  let incoming = enemy.damage;
+  if (member.damageReductionTurns && member.damageReductionTurns > 0) {
+    incoming = Math.ceil(incoming / 2);
+    member.damageReductionTurns--;
+    events.push(`💪 ${formatPlayerTag(player)} снижает входящий урон вдвое.`);
+  }
+  const sign = player.inventory?.sign;
+  const signEffects = getSignEffects(sign);
+  const helmetBlock = player.inventory?.helmet?.block || 0;
+  if (signEffects.dodgeChance > 0 && Math.random() < signEffects.dodgeChance) {
+    events.push(`🌀 ${formatPlayerTag(player)} увернулся благодаря ${sign ? sign.name : 'знаку'}!`);
+    incoming = 0;
+  }
+  if (incoming > 0) {
+    const blocked = Math.ceil(incoming * (helmetBlock / 100));
+    if (blocked > 0) {
+      events.push(`🪖 ${formatPlayerTag(player)} шлем блокирует ${blocked} урона.`);
+      incoming = Math.max(0, incoming - blocked);
+    }
+    if (incoming > 0) {
+      events.push(`💥 ${enemy.name} атакует ${formatPlayerTag(player)} на ${incoming} урона.`);
+    }
+  }
+  member.hp -= incoming;
+  let playerDied = false;
+  if (member.hp <= 0) {
+    const protectionMessage = raidTryUseSignProtection(member, sign, enemy);
+    if (protectionMessage) {
+      events.push(protectionMessage);
+    }
+  }
+  if (member.hp <= 0) {
+    member.hp = 0;
+    member.dead = true;
+    playerDied = true;
+  }
+  return { events, playerDied };
+}
+
+async function processRaidTurn(state) {
+  if (!state || state.status !== 'battle') return;
+  const enemy = state.currentEnemy;
+  const stage = state.currentStage;
+  if (!enemy || !stage) return;
+  const alive = getRaidAliveMembers(state);
+  if (alive.length === 0) {
+    handleRaidFailure(state, '☠️ Все игроки погибли. Миссия провалена.');
+    return;
+  }
+  if (!Number.isFinite(state.turnIndex) || state.turnIndex >= alive.length) {
+    state.turnIndex = 0;
+  }
+  const member = alive[state.turnIndex];
+  const events = performRaidPlayerAttack(state, member, enemy);
+  const summaryLines = [];
+  summaryLines.push(...events);
+  if (enemy.hp <= 0) {
+    summaryLines.push('', `🩸 HP врага: 0/${enemy.maxHp}`, `❤️ Состояние команды: ${formatRaidTeamHp(state)}`);
+    await bot.sendMessage(state.chatId, summaryLines.filter(Boolean).join('\n')).catch(() => {});
+    await handleRaidStageClear(state, stage);
+    return;
+  }
+  const counter = performRaidEnemyAttack(state, member, enemy);
+  summaryLines.push(...counter.events);
+  summaryLines.push('', `🩸 HP врага: ${Math.max(0, Math.round(enemy.hp))}/${enemy.maxHp}`, `❤️ Состояние команды: ${formatRaidTeamHp(state)}`);
+  await bot.sendMessage(state.chatId, summaryLines.filter(Boolean).join('\n')).catch(() => {});
+  if (counter.playerDied) {
+    await bot.sendMessage(state.chatId, `Игрок ${formatPlayerTag(member.player)} умер`).catch(() => {});
+  }
+  if (getRaidAliveMembers(state).length === 0) {
+    handleRaidFailure(state, '☠️ Все игроки погибли. Миссия провалена.');
+    return;
+  }
+  state.turnIndex += 1;
+  if (state.turnTimeout) {
+    clearTimeout(state.turnTimeout);
+    state.turnTimeout = null;
+  }
+  state.turnTimeout = setTimeout(() => {
+    processRaidTurn(state).catch((err) => console.error('raid turn error:', err));
+  }, 2500);
+}
+
+function awardRaidStageReward(state, stage) {
+  if (!state || !stage) return;
+  if (!state.completedStageIndexes) state.completedStageIndexes = new Set();
+  if (state.completedStageIndexes.has(stage.index)) return;
+  state.completedStageIndexes.add(stage.index);
+  const clan = clans[String(state.clanId)];
+  if (!clan) return;
+  clan.points = (clan.points || 0) + (stage.reward || 0);
+  saveData();
+}
+
+function healRaidMembers(state, amount) {
+  if (!state || !Array.isArray(state.members)) return;
+  for (const member of state.members) {
+    if (!member || member.dead) continue;
+    member.hp = Math.min(member.maxHp, member.hp + amount);
+  }
+}
+
+async function handleRaidStageClear(state, stage) {
+  if (!state || !stage) return;
+  if (state.turnTimeout) {
+    clearTimeout(state.turnTimeout);
+    state.turnTimeout = null;
+  }
+  state.currentEnemy = null;
+  awardRaidStageReward(state, stage);
+  const isFinalStage = state.stagePointer >= RAID_STAGES.length - 1;
+  let text;
+  if (isFinalStage) {
+    text = `Поздравляем! Вы выполнили миссию на 100% Ваша награда ${stage.reward} клановых очков.`;
+    await bot.sendMessage(state.chatId, text).catch(() => {});
+    cleanupRaidState(state);
+    return;
+  }
+  const medkitChance = getRaidMedkitChance(state);
+  let medkitText = '';
+  if (Math.random() < medkitChance) {
+    healRaidMembers(state, RAID_MEDKIT_HEAL);
+    medkitText = '\nТакже вы нашли склад с запасами медикаментов! Все игроки пополнили 300хп';
+  }
+  text = `Поздравляем! Вы получили доступ ко следующей комнате подвала!\n🏆 Клан получил ${stage.reward} клановых очков.${medkitText}`;
+  await bot.sendMessage(state.chatId, text).catch(() => {});
+  state.stagePointer += 1;
+  state.status = 'transition';
+  state.turnTimeout = setTimeout(() => {
+    startRaidStage(state).catch((err) => console.error('raid stage start error:', err));
+  }, 3500);
+}
+
+function handleRaidFailure(state, message) {
+  cleanupRaidState(state, message);
+}
+
 // helper: ensure clan exists
 function ensureClan(name, leaderId = null) {
   const ids = Object.keys(clans).map(n => Number(n));
@@ -4053,6 +4671,44 @@ bot.onText(/\/clan_leave/, (msg) => {
   bot.sendMessage(chatId, "Вы вышли из клана.");
 });
 
+bot.onText(/\/acceptmission(?:@\w+)?/, async (msg) => {
+  const chatId = msg.chat.id;
+  const player = ensurePlayer(msg.from);
+  if (!player) {
+    await bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
+    return;
+  }
+  if (!player.clanId) {
+    await bot.sendMessage(chatId, "Вы не состоите в клане.");
+    return;
+  }
+  const state = findRaidStateByClan(player.clanId);
+  if (!state || state.status !== 'lobby') {
+    await bot.sendMessage(chatId, "Нет активного лобби рейд миссии вашего клана или набор уже завершён.");
+    return;
+  }
+  if (Number(state.chatId) !== Number(chatId)) {
+    await bot.sendMessage(chatId, "Присоединиться можно в чате, где открыто лобби рейда.");
+    return;
+  }
+  if (state.memberIds && state.memberIds.has(player.id)) {
+    await bot.sendMessage(chatId, "Вы уже участвуете в лобби.");
+    return;
+  }
+  if (Array.isArray(state.members) && state.members.length >= RAID_MAX_PLAYERS) {
+    await bot.sendMessage(chatId, "Лобби заполнено.");
+    return;
+  }
+  const result = addPlayerToRaid(state, player);
+  if (!result.success) {
+    await bot.sendMessage(chatId, "Не удалось вступить в лобби.");
+    return;
+  }
+  await bot
+    .sendMessage(state.chatId, `${formatPlayerTag(player)} вступил в лобби. Игроков в лобби ${state.members.length}/${RAID_MAX_PLAYERS}`)
+    .catch(() => {});
+});
+
 // /clan_top
 bot.onText(/\/clan_top/, (msg) => {
   const chatId = msg.chat.id;
@@ -4322,10 +4978,14 @@ bot.on("callback_query", async (q) => {
       "clans_top",
       "clans_create_join",
       "clans_battle_info",
-      "clans_assault_info"
+      "clans_assault_info",
+      "clans_raid_mission"
     ]);
     const isAssaultAttackAction = typeof dataCb === 'string' && dataCb.startsWith('assault_attack:');
-    if (isGroupType && !allowedInGroup.has(dataCb) && !isAssaultAttackAction) {
+    const isRaidAction =
+      typeof dataCb === 'string' &&
+      (dataCb.startsWith('raid_style:') || dataCb.startsWith('raid_choice:'));
+    if (isGroupType && !allowedInGroup.has(dataCb) && !isAssaultAttackAction && !isRaidAction) {
       const chatIdCurrent = chat.id;
       const warnText = "Эти функции доступны только в личном сообщении бота, нажми на мою аватарку и играй!";
       await bot.answerCallbackQuery(q.id, { show_alert: true, text: warnText }).catch(()=>{});
@@ -4519,6 +5179,164 @@ if (dataCb === "clans_assault_info") {
   await editOrSend(chatId, messageId, text, {
     reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "clans_menu" }]] }
   });
+  return;
+}
+
+if (dataCb === "clans_raid_mission") {
+  if (!player) {
+    await bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
+    return;
+  }
+  if (!player.clanId) {
+    await bot.sendMessage(chatId, "Вы не состоите в клане.");
+    return;
+  }
+  const clan = clans[String(player.clanId)];
+  if (!clan) {
+    await bot.sendMessage(chatId, "Ваш клан не найден.");
+    return;
+  }
+  const existing = findRaidStateByClan(clan.id);
+  if (existing && existing.status !== 'finished') {
+    await bot.sendMessage(chatId, "В вашем клане уже запущена рейд миссия.");
+    return;
+  }
+  if (existing && existing.status === 'finished') {
+    cleanupRaidState(existing);
+  }
+  const state = {
+    id: Date.now(),
+    chatId,
+    clanId: clan.id,
+    leaderId: player.id,
+    createdAt: Date.now(),
+    status: 'lobby',
+    members: [],
+    memberIds: new Set(),
+    style: null,
+    stagePointer: 0,
+    currentStage: null,
+    currentEnemy: null,
+    turnIndex: 0,
+    countdownTimer: null,
+    turnTimeout: null,
+    styleMessageId: null,
+    styleMessageChatId: null,
+    pendingChoice: null,
+    completedStageIndexes: new Set()
+  };
+  const addResult = addPlayerToRaid(state, player);
+  if (!addResult.success) {
+    await bot.sendMessage(chatId, "Не удалось добавить игрока в рейд.");
+    return;
+  }
+  registerRaidState(state);
+  const introText = [
+    'Вы узнали расположение одной из лабараторий CRIMECORE, где по вашим данным удерживают похищенных жертв. Ваша цель узнать, как можно больше информации и вернуться оттуда живыми.',
+    'За каждую добытую вами информацию - вам назначена награда, чем больше - тем лучше.',
+    '',
+    'Для вступления других соклановцев в ваше лобби им нужно отправить команду /acceptmission',
+    ' ',
+    `Игроков в лобби ${state.members.length}/${RAID_MAX_PLAYERS}`,
+    'Старт через 130 секунд...'
+  ].join('\n');
+  await bot.sendMessage(chatId, introText).catch(() => {});
+  scheduleRaidStyleSelection(state);
+  return;
+}
+
+if (typeof dataCb === 'string' && dataCb.startsWith('raid_style:')) {
+  const [, clanIdRaw, styleKey] = dataCb.split(':');
+  const state = findRaidStateByClan(clanIdRaw);
+  if (!state) {
+    await bot.answerCallbackQuery(q.id, { text: 'Рейд не найден.', show_alert: true }).catch(() => {});
+    return;
+  }
+  if (Number(state.leaderId) !== Number(user.id)) {
+    await bot.answerCallbackQuery(q.id, { text: 'Только инициатор рейда может выбрать стиль.', show_alert: true }).catch(() => {});
+    return;
+  }
+  if (state.style) {
+    await bot.answerCallbackQuery(q.id, { text: `Стиль уже выбран: ${raidStyleDisplay(state.style)}.`, show_alert: true }).catch(() => {});
+    return;
+  }
+  if (state.status !== 'style_selection') {
+    await bot.answerCallbackQuery(q.id, { text: 'Сейчас нельзя выбрать стиль.', show_alert: true }).catch(() => {});
+    return;
+  }
+  const option = RAID_STYLE_OPTIONS[styleKey];
+  if (!option) {
+    await bot.answerCallbackQuery(q.id, { text: 'Неизвестный стиль.', show_alert: true }).catch(() => {});
+    return;
+  }
+  state.style = option.key;
+  if (state.styleMessageId && state.styleMessageChatId) {
+    await bot
+      .editMessageReplyMarkup({ inline_keyboard: [] }, {
+        chat_id: state.styleMessageChatId,
+        message_id: state.styleMessageId
+      })
+      .catch(() => {});
+  }
+  await bot.sendMessage(state.chatId, `Вы выбрали стиль ${option.display}. Желаю вернуться живыми!`).catch(() => {});
+  if (state.turnTimeout) {
+    clearTimeout(state.turnTimeout);
+    state.turnTimeout = null;
+  }
+  state.status = 'preparing';
+  state.stagePointer = 0;
+  state.turnIndex = 0;
+  state.turnTimeout = setTimeout(() => {
+    startRaidStage(state).catch((err) => console.error('raid stage init error:', err));
+  }, 2000);
+  return;
+}
+
+if (typeof dataCb === 'string' && dataCb.startsWith('raid_choice:')) {
+  const parts = dataCb.split(':');
+  if (parts.length < 4) {
+    return;
+  }
+  const [, clanIdRaw, stageIndexRaw, action] = parts;
+  const stageIndex = Number(stageIndexRaw);
+  const stage = RAID_STAGES.find((s) => s.index === stageIndex);
+  const state = findRaidStateByClan(clanIdRaw);
+  if (!state || !stage) {
+    await bot.answerCallbackQuery(q.id, { text: 'Рейд недоступен.', show_alert: true }).catch(() => {});
+    return;
+  }
+  if (Number(state.leaderId) !== Number(user.id)) {
+    await bot.answerCallbackQuery(q.id, { text: 'Только инициатор рейда может выбрать действие.', show_alert: true }).catch(() => {});
+    return;
+  }
+  if (state.status !== 'choice' || !state.pendingChoice || Number(state.pendingChoice.stageIndex) !== stageIndex) {
+    await bot.answerCallbackQuery(q.id, { text: 'Этот выбор уже сделан.', show_alert: true }).catch(() => {});
+    return;
+  }
+  if (state.pendingChoice && state.pendingChoice.messageId) {
+    await bot
+      .editMessageReplyMarkup({ inline_keyboard: [] }, {
+        chat_id: state.pendingChoice.chatId,
+        message_id: state.pendingChoice.messageId
+      })
+      .catch(() => {});
+  }
+  state.pendingChoice = null;
+  if (action === 'stealth') {
+    const chance = state.style === 'stealth' ? stage.stealthChanceStealth : stage.stealthChanceDefault;
+    const success = Math.random() < chance;
+    if (success) {
+      await bot.sendMessage(state.chatId, 'Поздравляем! Вы смогли прокрасться без лишнего шума ко следующей комнате подвала!').catch(() => {});
+      await handleRaidStageClear(state, stage);
+    } else {
+      await bot.sendMessage(state.chatId, 'Вас заметили! Вам п***!').catch(() => {});
+      await startRaidBattle(state, stage);
+    }
+    return;
+  }
+  if (action === 'attack') {
+    await startRaidBattle(state, stage);
+  }
   return;
 }
 
