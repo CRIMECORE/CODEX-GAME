@@ -3265,7 +3265,15 @@ function sanitizeRaidDirectOptions(options) {
 async function broadcastToRaidParticipants(state, handler) {
   if (!state || typeof handler !== 'function') return;
   const participantIds = getRaidParticipantChatIds(state);
+  const lobbyChatId = state?.chatId;
+  const lobbyChatKey =
+    lobbyChatId === null || lobbyChatId === undefined ? null : String(lobbyChatId);
   for (const participantId of participantIds) {
+    const participantKey =
+      participantId === null || participantId === undefined ? null : String(participantId);
+    if (lobbyChatKey && participantKey && participantKey === lobbyChatKey) {
+      continue;
+    }
     try {
       await handler(participantId);
     } catch (err) {
