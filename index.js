@@ -1051,6 +1051,7 @@ function ensurePlayer(user) {
       firstAttack: true,
       lastHunt: 0,
       pendingDrop: null,
+      pendingHuntRaid: null,
       pvpWins: 0,
       pvpLosses: 0,
       pvpRating: 0,
@@ -1077,6 +1078,9 @@ function ensurePlayer(user) {
     ensurePvpRatingFields(p);
     if (typeof p.inviteCasesAvailable !== 'number' || !Number.isFinite(p.inviteCasesAvailable)) {
       p.inviteCasesAvailable = 0;
+    }
+    if (!('pendingHuntRaid' in p)) {
+      p.pendingHuntRaid = null;
     }
     if (typeof p.inviteCasesOpened !== 'number' || !Number.isFinite(p.inviteCasesOpened)) {
       p.inviteCasesOpened = p.inviteCaseOpened ? 1 : 0;
@@ -1501,6 +1505,7 @@ function cleanDatabase() {
     p.firstAttack ??= false;
     p.lastHunt ??= 0;
     p.pendingDrop ??= null;
+    p.pendingHuntRaid ??= null;
     p.pvpWins ??= 0;
     p.pvpLosses ??= 0;
     p.pvpRating ??= 0;
@@ -2166,6 +2171,8 @@ const DANGER_EVENT_CHANCE = 0.1;
 const DANGER_EVENT_ITEM_CHANCE = 0.12;
 
 const SUPPLY_DROP_CHANCE = 0.12;
+const HUNT_RARE_RAID_CHANCE = 0.05;
+const HUNT_RARE_RAID_IMAGE_URL = 'https://i.postimg.cc/CL0dDqSn/1600ec0e-5e77-4f6f-859f-a8dbbd7e3da6.png';
 const MEDKIT_IMAGE_URL = "https://i.postimg.cc/C5qk2Xwx/photo-2025-09-23-22-52-00.jpg";
 const FOOD_IMAGE_URL = "https://i.postimg.cc/bN022QJk/photo-2025-09-23-22-49-42.jpg";
 const MEDKIT_HEAL = 100;
@@ -3350,6 +3357,80 @@ async function notifyClanMembersRaidStart(clan) {
   }
 }
 
+async function initiateClanRaidMission(player, chatId, options = {}) {
+  const { doubleReward = false } = options;
+  if (!player) {
+    await bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
+    return false;
+  }
+  if (!player.clanId) {
+    await bot.sendMessage(chatId, "Вы не состоите в клане.");
+    return false;
+  }
+  const clan = clans[String(player.clanId)];
+  if (!clan) {
+    await bot.sendMessage(chatId, "Ваш клан не найден.");
+    return false;
+  }
+  const existing = findRaidStateByClan(clan.id);
+  if (existing && existing.status !== 'finished') {
+    await bot.sendMessage(chatId, "В вашем клане уже запущена рейд миссия.");
+    return false;
+  }
+  if (existing && existing.status === 'finished') {
+    cleanupRaidState(existing);
+  }
+  const state = {
+    id: Date.now(),
+    chatId,
+    clanId: clan.id,
+    leaderId: player.id,
+    createdAt: Date.now(),
+    status: 'lobby',
+    members: [],
+    memberIds: new Set(),
+    style: null,
+    stagePointer: 0,
+    currentStage: null,
+    currentEnemy: null,
+    turnIndex: 0,
+    countdownTimer: null,
+    turnTimeout: null,
+    styleMessageId: null,
+    styleMessageChatId: null,
+    pendingChoice: null,
+    lastClearedStageIndex: null,
+    lastClearedStageReward: 0,
+    rewardGranted: false,
+    doubleReward: Boolean(doubleReward)
+  };
+  const addResult = addPlayerToRaid(state, player);
+  if (!addResult.success) {
+    await bot.sendMessage(chatId, "Не удалось добавить игрока в рейд.");
+    return false;
+  }
+  registerRaidState(state);
+  const introLines = [
+    'Вы узнали расположение одной из лабараторий CRIMECORE, где по вашим данным удерживают похищенных жертв. Ваша цель узнать, как можно больше информации и вернуться оттуда живыми.',
+    'За каждую добытую вами информацию - вам назначена награда, чем больше - тем лучше.',
+    ''
+  ];
+  if (state.doubleReward) {
+    introLines.push('💰 Эта рейд миссия принесёт двойную награду!');
+    introLines.push('');
+  }
+  introLines.push(
+    'Для вступления других соклановцев в ваше лобби им нужно отправить команду /acceptmission',
+    ' ',
+    `Игроков в лобби ${state.members.length}/${RAID_MAX_PLAYERS}`,
+    'Старт через 130 секунд...'
+  );
+  await sendRaidMessage(state, introLines.join('\n')).catch(() => {});
+  await notifyClanMembersRaidStart(clan).catch(() => {});
+  scheduleRaidStyleSelection(state);
+  return true;
+}
+
 function createRaidMemberState(player) {
   if (!player) return null;
   applyArmorHelmetBonuses(player);
@@ -3796,7 +3877,11 @@ function finalizeRaidReward(state) {
   if (!state || state.rewardGranted) return null;
   state.rewardGranted = true;
   const stageIndex = state.lastClearedStageIndex;
-  const reward = Number(state.lastClearedStageReward) || 0;
+  const baseReward = Number(state.lastClearedStageReward) || 0;
+  let reward = baseReward;
+  if (state.doubleReward) {
+    reward *= 2;
+  }
   if (!Number.isFinite(stageIndex) || reward <= 0) {
     return 'Награда не получена, команда не успела добыть информацию.';
   }
@@ -3815,6 +3900,9 @@ function finalizeRaidReward(state) {
     }
     saveData();
     const lines = [`🏆 Клан получил ${reward} клановых очков за ${label}.`];
+    if (state.doubleReward) {
+      lines.push('💰 Бонус рейда из охоты: награда удвоена.');
+    }
     if (participants.length > 0) {
       lines.push(`☣️ Каждый игрок получил ${reward} очков заражения.`);
     }
@@ -5388,68 +5476,7 @@ if (dataCb === "clans_assault_info") {
 }
 
 if (dataCb === "clans_raid_mission") {
-  if (!player) {
-    await bot.sendMessage(chatId, "Ошибка: профиль не найден. Введите /play.");
-    return;
-  }
-  if (!player.clanId) {
-    await bot.sendMessage(chatId, "Вы не состоите в клане.");
-    return;
-  }
-  const clan = clans[String(player.clanId)];
-  if (!clan) {
-    await bot.sendMessage(chatId, "Ваш клан не найден.");
-    return;
-  }
-  const existing = findRaidStateByClan(clan.id);
-  if (existing && existing.status !== 'finished') {
-    await bot.sendMessage(chatId, "В вашем клане уже запущена рейд миссия.");
-    return;
-  }
-  if (existing && existing.status === 'finished') {
-    cleanupRaidState(existing);
-  }
-  const state = {
-    id: Date.now(),
-    chatId,
-    clanId: clan.id,
-    leaderId: player.id,
-    createdAt: Date.now(),
-    status: 'lobby',
-    members: [],
-    memberIds: new Set(),
-    style: null,
-    stagePointer: 0,
-    currentStage: null,
-    currentEnemy: null,
-    turnIndex: 0,
-    countdownTimer: null,
-    turnTimeout: null,
-    styleMessageId: null,
-    styleMessageChatId: null,
-    pendingChoice: null,
-    lastClearedStageIndex: null,
-    lastClearedStageReward: 0,
-    rewardGranted: false
-  };
-  const addResult = addPlayerToRaid(state, player);
-  if (!addResult.success) {
-    await bot.sendMessage(chatId, "Не удалось добавить игрока в рейд.");
-    return;
-  }
-  registerRaidState(state);
-  const introText = [
-    'Вы узнали расположение одной из лабараторий CRIMECORE, где по вашим данным удерживают похищенных жертв. Ваша цель узнать, как можно больше информации и вернуться оттуда живыми.',
-    'За каждую добытую вами информацию - вам назначена награда, чем больше - тем лучше.',
-    '',
-    'Для вступления других соклановцев в ваше лобби им нужно отправить команду /acceptmission',
-    ' ',
-    `Игроков в лобби ${state.members.length}/${RAID_MAX_PLAYERS}`,
-    'Старт через 130 секунд...'
-  ].join('\n');
-  await sendRaidMessage(state, introText).catch(() => {});
-  await notifyClanMembersRaidStart(clan).catch(() => {});
-  scheduleRaidStyleSelection(state);
+  await initiateClanRaidMission(player, chatId);
   return;
 }
 
@@ -5709,6 +5736,34 @@ if (dataCb === "hunt") {
     applyArmorHelmetBonuses(player);
     resetPlayerSignFlags(player);
 
+    player.pendingHuntRaid = null;
+
+    if (Math.random() < HUNT_RARE_RAID_CHANCE) {
+      player.pendingHuntRaid = { doubleReward: true, createdAt: Date.now() };
+      saveData();
+      const caption = [
+        'РЕЙД МИССИЯ!!! 🩸🩸🩸',
+        '',
+        'Вы заметили фургон ведущий в одну из спрятанных лабораторий CRIMECORE, вы можете устроить рейд лаборатории и получить x2 награду от Рейд миссии.',
+        'Чем больше пройденных уровней, тем больше награда, умноженная в два раза от начала из охоты.',
+        'Вы можете попытаться пройти ее в одиночку, но лучше взять с собой соклановцев :)'
+      ].join('\n');
+      await bot.sendPhoto(chatId, HUNT_RARE_RAID_IMAGE_URL, {
+        caption,
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '✅ Начать миссию', callback_data: 'hunt_raid_start' }
+            ],
+            [
+              { text: '❌ Уйти', callback_data: 'hunt_raid_leave' }
+            ]
+          ]
+        }
+      });
+      return;
+    }
+
     if (Math.random() < SUPPLY_DROP_CHANCE) {
       const foundMedkit = Math.random() < 0.5;
       const healValue = foundMedkit ? MEDKIT_HEAL : FOOD_HEAL;
@@ -5804,10 +5859,34 @@ if (dataCb === "hunt") {
     return;
 }
 
+if (dataCb === "hunt_raid_start") {
+    if (!player?.pendingHuntRaid) {
+        await bot.answerCallbackQuery(q.id, { text: "Эта миссия больше не доступна.", show_alert: true }).catch(()=>{});
+        return;
+    }
+    await bot.answerCallbackQuery(q.id).catch(()=>{});
+    const doubleReward = Boolean(player.pendingHuntRaid?.doubleReward);
+    const started = await initiateClanRaidMission(player, chatId, { doubleReward });
+    if (started) {
+        player.pendingHuntRaid = null;
+        saveData();
+    }
+    return;
+}
+
+if (dataCb === "hunt_raid_leave") {
+    await bot.answerCallbackQuery(q.id).catch(()=>{});
+    player.pendingHuntRaid = null;
+    saveData();
+    const menuText = buildMainMenuText(player);
+    await bot.sendMessage(chatId, menuText, { reply_markup: mainMenuKeyboard(), parse_mode: "Markdown" });
+    return;
+}
+
 if (dataCb === "run_before_start") {
-    if (player.firstAttack) { 
-        await bot.answerCallbackQuery(q.id, { text: "Нельзя убежать, бой уже начался!", show_alert: true }).catch(()=>{}); 
-        return; 
+    if (player.firstAttack) {
+        await bot.answerCallbackQuery(q.id, { text: "Нельзя убежать, бой уже начался!", show_alert: true }).catch(()=>{});
+        return;
     }
     player.monster = null;
     player.monsterStun = 0;
