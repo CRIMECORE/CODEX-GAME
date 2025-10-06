@@ -2171,6 +2171,8 @@ const DANGER_EVENT_CHANCE = 0.1;
 const DANGER_EVENT_ITEM_CHANCE = 0.12;
 
 const SUPPLY_DROP_CHANCE = 0.12;
+const RESCUE_EVENT_CHANCE = 0.04;
+const RESCUE_EVENT_IMAGE_URL = 'https://i.postimg.cc/hjWYNzsW/photo-2025-10-06-02-06-28.jpg';
 const HUNT_RARE_RAID_CHANCE = 0.05;
 const HUNT_RARE_RAID_IMAGE_URL = 'https://i.postimg.cc/CL0dDqSn/1600ec0e-5e77-4f6f-859f-a8dbbd7e3da6.png';
 const MEDKIT_IMAGE_URL = "https://i.postimg.cc/C5qk2Xwx/photo-2025-09-23-22-52-00.jpg";
@@ -5738,11 +5740,35 @@ if (dataCb === "hunt") {
     player.currentDanger = null;
     player.currentDangerMsgId = null;
     player.monster = null;
+    player.pendingRescueGift = null;
     delete player.currentBattleMsgId;
     applyArmorHelmetBonuses(player);
     resetPlayerSignFlags(player);
 
     player.pendingHuntRaid = null;
+
+    if (Math.random() < RESCUE_EVENT_CHANCE) {
+      player.pendingRescueGift = { createdAt: now };
+      saveData();
+      await bot.sendPhoto(chatId, RESCUE_EVENT_IMAGE_URL, {
+        caption:
+          'Вы обнаружили укушенную девушку и помогли ей с медикаментами, в знак благодарности она решила отдать вам один из ее предметов, что вы готовы взять?',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: 'Шлем', callback_data: 'rescue_reward:helmet' },
+              { text: 'Броня', callback_data: 'rescue_reward:armor' },
+              { text: 'Оружие', callback_data: 'rescue_reward:weapon' }
+            ],
+            [
+              { text: 'Мутация', callback_data: 'rescue_reward:mutation' },
+              { text: 'Доп. Предмет', callback_data: 'rescue_reward:extra' }
+            ]
+          ]
+        }
+      });
+      return;
+    }
 
     if (Math.random() < HUNT_RARE_RAID_CHANCE) {
       player.pendingHuntRaid = { doubleReward: true, createdAt: Date.now() };
@@ -6221,7 +6247,74 @@ if (dataCb === "attack") {
     await editOrSend(chatId, messageId, text, { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
     return;
   }
-}
+  }
+
+  if (dataCb.startsWith('rescue_reward:')) {
+    if (!player.pendingRescueGift) {
+      await bot.answerCallbackQuery(q.id, {
+        text: 'Событие больше не активно.',
+        show_alert: true
+      }).catch(() => {});
+      return;
+    }
+
+    const [, category] = dataCb.split(':');
+    const pools = {
+      helmet: helmetItems,
+      armor: armorItems,
+      weapon: weaponItems,
+      mutation: mutationItems,
+      extra: extraItems
+    };
+
+    const pool = pools[category];
+    if (!pool || pool.length === 0) {
+      await bot.answerCallbackQuery(q.id, {
+        text: 'Не удалось подобрать предмет.',
+        show_alert: true
+      }).catch(() => {});
+      return;
+    }
+
+    const reward = pickRandomItem(pool);
+    if (!reward) {
+      await bot.answerCallbackQuery(q.id, {
+        text: 'Предмет не найден.',
+        show_alert: true
+      }).catch(() => {});
+      return;
+    }
+
+    player.pendingDrop = { ...reward };
+    player.pendingRescueGift = null;
+    saveData();
+
+    const dropSummary = formatDropSummary(player.pendingDrop);
+    await bot.answerCallbackQuery(q.id).catch(() => {});
+    await bot.editMessageCaption(
+      `Она достаёт из сумки выбранный предмет и протягивает его тебе.\n\n${dropSummary}\nЧто делать?`,
+      {
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '✅ Взять', callback_data: 'take_drop' }],
+            [{ text: '🗑️ Выбросить', callback_data: 'discard_drop' }]
+          ]
+        }
+      }
+    ).catch(async () => {
+      await bot.sendMessage(chatId, `${dropSummary}\nЧто делать?`, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '✅ Взять', callback_data: 'take_drop' }],
+            [{ text: '🗑️ Выбросить', callback_data: 'discard_drop' }]
+          ]
+        }
+      });
+    });
+    return;
+  }
 
   if (dataCb.startsWith("danger_move:")) {
     if (!player.currentDanger) {
