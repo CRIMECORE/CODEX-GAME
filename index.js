@@ -2175,6 +2175,12 @@ const HUNT_RARE_RAID_CHANCE = 0.05;
 const HUNT_RARE_RAID_IMAGE_URL = 'https://i.postimg.cc/CL0dDqSn/1600ec0e-5e77-4f6f-859f-a8dbbd7e3da6.png';
 const MEDKIT_IMAGE_URL = "https://i.postimg.cc/C5qk2Xwx/photo-2025-09-23-22-52-00.jpg";
 const FOOD_IMAGE_URL = "https://i.postimg.cc/bN022QJk/photo-2025-09-23-22-49-42.jpg";
+const SPECIAL_SUBJECT_CHANCE = 0.01;
+const SPECIAL_SUBJECT_IMAGE_URL = "https://i.postimg.cc/9QMxrt0s/photo-2025-10-06-03-03-40.jpg";
+const SPECIAL_SUBJECT_HP = 2222;
+const SPECIAL_SUBJECT_DMG = 333;
+const SPECIAL_SUBJECT_INFECTION_REWARD = 200;
+const SPECIAL_SUBJECT_INFECTION_LOSS = 100;
 const MEDKIT_HEAL = 100;
 const FOOD_HEAL = 30;
 
@@ -5797,7 +5803,8 @@ if (dataCb === "hunt") {
         medium: "https://i.postimg.cc/VNyd6ncg/IMG-6678.jpg",
         fat:   "https://i.postimg.cc/nz2z0W9S/IMG-6679.jpg",
         quest: "https://i.postimg.cc/J4Gn5PrK/IMG-6680.jpg",
-        boss:  "https://i.postimg.cc/TwRBcpGL/image.jpg"
+        boss:  "https://i.postimg.cc/TwRBcpGL/image.jpg",
+        special: SPECIAL_SUBJECT_IMAGE_URL
     };
 
   const bossChance = 0.05;
@@ -5806,6 +5813,29 @@ if (dataCb === "hunt") {
     saveData();
     const sent = await bot.sendPhoto(chatId, monsterImages.boss, {
       caption: `☠️ Ты наткнулся на босса CRIMECORE!\nHP: ${player.monster.hp}/${player.monster.maxHp}\nУрон: ${player.monster.dmg}`,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "⚔️ Атаковать", callback_data: "attack" }],
+          [{ text: "🏃 Убежать", callback_data: "run_before_start" }]
+        ]
+      }
+    });
+    player.currentBattleMsgId = sent.message_id;
+    saveData();
+    return;
+  }
+
+  if (Math.random() < SPECIAL_SUBJECT_CHANCE) {
+    player.monster = {
+      id: "***",
+      hp: SPECIAL_SUBJECT_HP,
+      maxHp: SPECIAL_SUBJECT_HP,
+      dmg: SPECIAL_SUBJECT_DMG,
+      type: "special"
+    };
+    saveData();
+    const sent = await bot.sendPhoto(chatId, SPECIAL_SUBJECT_IMAGE_URL, {
+      caption: `*** ******* ****** *****\n**: ****/****\n****: ***`,
       reply_markup: {
         inline_keyboard: [
           [{ text: "⚔️ Атаковать", callback_data: "attack" }],
@@ -5845,13 +5875,16 @@ if (dataCb === "hunt") {
     player.monster = spawnMonster();
     saveData();
     const img = monsterImages[player.monster.type] || monsterImages.weak;
+    const caption = player.monster.type === "special"
+        ? `*** ******* ****** *****\n**: ****/****\n****: ***`
+        : `🩸 Ты встретил Подопытного №${player.monster.id}\nHP: ${player.monster.hp}/${player.monster.maxHp}\nУрон: ${player.monster.dmg}`;
     const sent = await bot.sendPhoto(chatId, img, {
-        caption: `🩸 Ты встретил Подопытного №${player.monster.id}\nHP: ${player.monster.hp}/${player.monster.maxHp}\nУрон: ${player.monster.dmg}`,
+        caption,
         reply_markup: {
             inline_keyboard: [
                 [{ text: "⚔️ Атаковать", callback_data: "attack" }],
                 [{ text: "🏃 Убежать", callback_data: "run_before_start" }]
-            ] 
+            ]
         }
     });
     player.currentBattleMsgId = sent.message_id;
@@ -5966,6 +5999,8 @@ if (dataCb === "attack") {
         let infGain;
         if (monsterType === "boss") {
             infGain = 200;
+        } else if (monsterType === "special") {
+            infGain = SPECIAL_SUBJECT_INFECTION_REWARD;
         } else {
             infGain = (monsterType === "medium") ? 35 : (monsterType === "fat" ? 60 : 20);
         }
@@ -5976,6 +6011,20 @@ if (dataCb === "attack") {
             const finalSign = getFinalSignTemplate();
             if (finalSign) {
                 player.pendingDrop = { ...finalSign };
+            }
+        } else if (monsterType === "special") {
+            const dropPool = [
+              ...weaponItems.map(it => ({ ...it, kind: "weapon" })),
+              ...helmetItems.map(it => ({ ...it, kind: "helmet" })),
+              ...mutationItems.map(it => ({ ...it, kind: "mutation" })),
+              ...extraItems.map(it => ({ ...it, kind: "extra" })),
+              ...armorItems.map(it => ({ ...it, kind: "armor" }))
+            ];
+            if (dropPool.length > 0) {
+              const picked = dropPool[Math.floor(Math.random() * dropPool.length)];
+              if (picked) {
+                player.pendingDrop = { ...picked };
+              }
             }
         } else {
             const dropChance = (monsterType === "weak") ? 0.20 : (monsterType === "medium") ? 0.35 : 0.60;
@@ -6004,10 +6053,20 @@ if (dataCb === "attack") {
         }
 
         saveData();
-        const victoryPrefix = monsterType === "boss" ? "💀 Ты уничтожил босса CRIMECORE" : "💀 Ты убил Подопытного";
+        let victoryPrefix;
+        if (monsterType === "boss") {
+            victoryPrefix = "💀 Ты уничтожил босса CRIMECORE";
+        } else if (monsterType === "special") {
+            victoryPrefix = "💀 Ты обезвредил Подопытную ***";
+        } else {
+            victoryPrefix = "💀 Ты убил Подопытного";
+        }
         let winText = `${victoryPrefix} и получил +${infGain} заражения☣️!\nТекущий уровень заражения: ${player.infection}`;
         if (survivalMessage) {
             winText += `\n${survivalMessage}`;
+        }
+        if (monsterType === "special") {
+            winText += "\n🗓 +1 день выживания.";
         }
         if (player.pendingDrop) {
             const dropSummary = formatDropSummary(player.pendingDrop);
@@ -6061,7 +6120,8 @@ if (dataCb === "attack") {
         }
 
         if (player.hp <= 0) {
-            const loss = Math.floor(Math.random() * 26) + 5;
+            const monsterType = player.monster?.type || "weak";
+            const loss = monsterType === "special" ? SPECIAL_SUBJECT_INFECTION_LOSS : Math.floor(Math.random() * 26) + 5;
             player.infection = Math.max(0, player.infection - loss);
             resetSurvivalProgress(player);
             applyArmorHelmetBonuses(player);
@@ -6079,8 +6139,12 @@ if (dataCb === "attack") {
             const deathLines = [
                 `${events.join("\n")}`,
                 "",
-                `☠️ Ты умер и потерял ${loss} уровня заражения☣️. Твой уровень: ${player.infection}`,
-                "🗓 Дни выживания обнулились."
+                monsterType === "special"
+                    ? `☠️ Подопытная *** победила тебя и забрала ${loss} заражения☣️. Твой уровень: ${player.infection}`
+                    : `☠️ Ты умер и потерял ${loss} уровня заражения☣️. Твой уровень: ${player.infection}`,
+                monsterType === "special"
+                    ? "🗓 Все дни выживания обнулены."
+                    : "🗓 Дни выживания обнулились."
             ].filter(Boolean);
             await bot.sendMessage(chatId, deathLines.join("\n"), { reply_markup: { inline_keyboard: [[{ text: "⬅️ Назад", callback_data: "play" }]] } });
             return;
