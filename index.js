@@ -1308,7 +1308,7 @@ function mainMenuKeyboard() {
       [{ text: "🏆 Таблица лидеров", callback_data: "leaderboard_menu" }],
       [{ text: "⚔️ PvP", callback_data: "pvp_menu" }],
       [{ text: "🏰 Кланы", callback_data: "clans_menu" }],
-      [{ text: "👥 Комьюнити", callback_data: "resources" }]
+      [{ text: "👥 Коммьюнити", callback_data: "community" }]
     ]
   };
 }
@@ -1349,9 +1349,9 @@ function leaderboardResultKeyboard() {
 function clansMenuKeyboard() {
   return {
     inline_keyboard: [
+      [{ text: "✅ Создать / принять клан", callback_data: "clans_create_join" }],
       [{ text: "❗ Рейд миссия", callback_data: "clans_raid_mission" }],
-      [{ text: "Создать / принять клан", callback_data: "clans_create_join" }],
-      [{ text: "Клановая битва", callback_data: "clans_battle_info" }],
+      [{ text: "🪖 Клановая битва", callback_data: "clans_battle_info" }],
       [{ text: "⚔️ Захват чата", callback_data: "clans_assault_info" }],
       [{ text: "⬅️ Назад", callback_data: "play" }]
     ]
@@ -1592,7 +1592,7 @@ function buildSurvivalLeaderboardText(currentPlayer) {
   sorted.slice(0, 10).forEach((p, i) => {
     const baseName = p.username ? p.username : (p.name || `id${p.id}`);
     const escapedName = escMd(baseName);
-    const displayName = p.username === "bitcoincooking" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
+    const displayName = p.username === "heavenwasbeautiful" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
     const best = Number.isFinite(p?.bestSurvivalDays) ? p.bestSurvivalDays : 0;
     const current = Number.isFinite(p?.survivalDays) ? p.survivalDays : 0;
     text += `${i + 1}. ${displayName} — рекорд ${formatSurvivalTotal(best)} выживания (сейчас: ${formatSurvivalTotal(current)})\n`;
@@ -1627,7 +1627,7 @@ function buildPvpRatingLeaderboardText(currentPlayer) {
   sorted.slice(0, 10).forEach((p, i) => {
     const baseName = p.username ? p.username : (p.name || `id${p.id}`);
     const escapedName = escMd(baseName);
-    const displayName = p.username === "bitcoincooking" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
+    const displayName = p.username === "heavenwasbeautiful" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
     const rating = Number.isFinite(p?.pvpRating) ? p.pvpRating : 0;
     const best = Number.isFinite(p?.pvpRatingBest) ? p.pvpRatingBest : 0;
     text += `${i + 1}. ${displayName} — рекорд: ${best} (текущий: ${rating})\n`;
@@ -2171,7 +2171,7 @@ const DANGER_EVENT_CHANCE = 0.1;
 const DANGER_EVENT_ITEM_CHANCE = 0.12;
 
 const SUPPLY_DROP_CHANCE = 0.12;
-const RESCUE_EVENT_CHANCE = 0.04;
+const RESCUE_EVENT_CHANCE = 0.01;
 const RESCUE_EVENT_IMAGE_URL = 'https://i.postimg.cc/hjWYNzsW/photo-2025-10-06-02-06-28.jpg';
 const HUNT_RARE_RAID_CHANCE = 0.05;
 const HUNT_RARE_RAID_IMAGE_URL = 'https://i.postimg.cc/CL0dDqSn/1600ec0e-5e77-4f6f-859f-a8dbbd7e3da6.png';
@@ -5298,7 +5298,7 @@ bot.on("callback_query", async (q) => {
   }
   // === /Ограничение кнопок ===
   let player = ensurePlayer(user);
-  if (dataCb === "resources") {
+  if (dataCb === "community") {
     const text = "📚 Полезные ресурсы\nВыбери, куда перейти:";
     await editOrSend(chatId, messageId, text, {
       reply_markup: resourcesKeyboard(),
@@ -6480,22 +6480,18 @@ bot.onText(/^\/pull$/i, async (msg) => {
   });
 });
 
-// Add this with other command handlers
-bot.onText(/^\/giveto\s+(.+)/i, async (msg, match) => {
+bot.onText(/^\/giveto\s+(\d+)\s+(.+)/i, async (msg, match) => {
   const chatId = msg.chat.id;
   const fromId = msg.from.id;
+  
+  // Check if user is admin
+  if (!isAdmin(fromId)) {
+    return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+  }
 
-  // Проверка на админа
-  // if (!isAdmin(fromId)) {
-  //   return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
-  // }
-
-  const args = match[1].trim().split(/\s+/);
-  let targetId, itemName;
-
-  targetId = fromId;
-  itemName = args.join(" ");
-
+  const targetId = match[1];
+  const itemName = match[2].trim();
+  
   const targetPlayer = players[targetId];
   if (!targetPlayer) {
     return bot.sendMessage(chatId, "❌ Игрок не найден.");
@@ -6506,36 +6502,28 @@ bot.onText(/^\/giveto\s+(.+)/i, async (msg, match) => {
     return bot.sendMessage(chatId, `❌ Предмет "${itemName}" не найден.`);
   }
 
-  // Добавление предмета в инвентарь
-  const slot = item.kind || 'weapon'; // По умолчанию weapon
+  // Add item to player's inventory
+  const slot = item.kind || 'weapon'; // Default to weapon if kind not specified
   targetPlayer.inventory = targetPlayer.inventory || {};
   targetPlayer.inventory[slot] = { ...item };
   saveData();
-
-  if (targetId === fromId) {
-    bot.sendMessage(chatId, `✅ Вы выдали себе предмет "${item.name}".`);
-  } else {
-    bot.sendMessage(chatId, `✅ Предмет "${item.name}" выдан игроку ${targetPlayer.name || targetPlayer.username || targetId}.`);
-    bot.sendMessage(targetId, `🎁 Администратор выдал Вам предмет: ${item.name}`);
-  }
+  
+  bot.sendMessage(chatId, `✅ Предмет "${item.name}" выдан игроку ${targetPlayer.name || targetPlayer.username || targetId}.`);
+  bot.sendMessage(targetId, `🎁 Администратор выдал Вам предмет: ${item.name}`);
 });
 
-
-bot.onText(/^\/points\s+(.+)/i, async (msg, match) => {
+bot.onText(/^\/pointsto\s+(\d+)\s+(-?\d+)/i, async (msg, match) => {
   const chatId = msg.chat.id;
   const fromId = msg.from.id;
+  
+  // Check if user is admin
+  if (!isAdmin(fromId)) {
+    return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+  }
 
-  // Проверка на админа
-  // if (!isAdmin(fromId)) {
-  //   return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
-  // }
-
-  const args = match[1].trim().split(/\s+/);
-  let targetId, points;
-
-  targetId = fromId;
-  points = parseInt(args.join(" "), 10);
-
+  const targetId = match[1];
+  const points = parseInt(match[2], 10);
+  
   if (isNaN(points)) {
     return bot.sendMessage(chatId, "❌ Некорректное количество очков.");
   }
@@ -6547,19 +6535,14 @@ bot.onText(/^\/points\s+(.+)/i, async (msg, match) => {
 
   targetPlayer.infection = (targetPlayer.infection || 0) + points;
   saveData();
-
+  
   const action = points >= 0 ? "начислено" : "списано";
   const absPoints = Math.abs(points);
-
-  if (targetId === fromId) {
-    bot.sendMessage(chatId, `✅ Вам ${action} ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`);
-  } else {
-    bot.sendMessage(chatId, `✅ Игроку ${targetPlayer.name || targetPlayer.username || targetId} ${action} ${absPoints} очк(а/ов) заражения.`);
-    bot.sendMessage(targetId, points >= 0 
-      ? `🎉 Администратор начислил Вам ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
-      : `⚠️ Администратор списал с Вас ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
-    );
-  }
+  bot.sendMessage(chatId, `✅ Игроку ${targetPlayer.name || targetPlayer.username || targetId} ${action} ${absPoints} очк(а/ов) заражения.`);
+  bot.sendMessage(targetId, points >= 0 
+    ? `🎉 Администратор начислил Вам ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
+    : `⚠️ Администратор списал с Вас ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
+  );
 });
 
 bot.onText(/^\/crimecoins(?:@\w+)?\s+(.+)/i, async (msg, match) => {
@@ -7345,7 +7328,7 @@ function startKeepAliveScheduler(targets) {
 
 
 if (process.env.NODE_ENV !== 'test') {
-  const PORT = Number.parseInt(process.env.PORT, 10) || 3001;
+  const PORT = Number.parseInt(process.env.PORT, 10) || 3000;
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Bot is running\n');
