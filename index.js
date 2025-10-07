@@ -6484,11 +6484,11 @@ bot.onText(/^\/pull$/i, async (msg) => {
 bot.onText(/\/invoiceto (\d+) (\d+)/, async (msg, match) => {
   const chatId = msg.chat.id;
   const targetId = match[1];
-  const amount = parseInt(match[2], 10); // количество звёзд
+  const amount = parseInt(match[2], 10);
 
-    if (!isAdmin(fromId)) {
-       return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
-    }
+  if (!isAdmin(fromId)) {
+      return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+  }
 
   try {
     // создаём invoice ссылку (в звёздах)
