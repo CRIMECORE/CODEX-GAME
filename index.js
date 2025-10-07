@@ -3346,7 +3346,8 @@ async function sendRaidPhoto(state, photo, options = undefined) {
 
 async function notifyClanMembersRaidStart(clan) {
   if (!clan || !Array.isArray(clan.members) || clan.members.length === 0) return;
-  const text = 'Ваш клан начал рейд миссию! Отправьте /acceptmission если хотите вступить в лобби!';
+  const text =
+    'Ваш клан начал рейд миссию! Приглашение отправлено всем соклановцам в личные сообщения — вступить в лобби можно из любого чата командой /acceptmission.';
   const notified = new Set();
   for (const memberId of clan.members) {
     if (memberId === null || memberId === undefined) continue;
@@ -3428,7 +3429,7 @@ async function initiateClanRaidMission(player, chatId, options = {}) {
     introLines.push('');
   }
   introLines.push(
-    'Для вступления других соклановцев в ваше лобби им нужно отправить команду /acceptmission',
+    'Для вступления других соклановцев в ваше лобби им нужно отправить команду /acceptmission из любого чата',
     ' ',
     `Игроков в лобби ${state.members.length}/${RAID_MAX_PLAYERS}`,
     'Старт через 130 секунд...'
