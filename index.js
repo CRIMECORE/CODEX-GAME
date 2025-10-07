@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import http from 'http';
 import fs from 'fs';
 import { exec } from 'child_process';
+import axios from "axios";
 
 import { ensureEnvConfig } from './lib/env.js';
 import { optionalImport } from './lib/optionalImport.js';
