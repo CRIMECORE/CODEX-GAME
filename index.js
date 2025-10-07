@@ -6467,7 +6467,7 @@ bot.onText(/^\/pull$/i, async (msg) => {
 
   bot.sendMessage(chatId, "📡 Обновление из ветки test...");
 
-  exec('git pull origin test', (error, stdout, stderr) => {
+  exec('git pull origin main', (error, stdout, stderr) => {
     if (error) {
       console.error(error);
       return bot.sendMessage(chatId, `❌ Ошибка при выполнении git pull:\n<code>${error.message}</code>`, { parse_mode: 'HTML' });
