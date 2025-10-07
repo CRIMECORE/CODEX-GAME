@@ -6486,7 +6486,7 @@ bot.onText(/\/invoiceto (\d+) (\d+)/, async (msg, match) => {
   const targetId = match[1];
   const amount = parseInt(match[2], 10);
 
-  if (!isAdmin(fromId)) {
+  if (!isAdmin(chatId)) {
       return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
   }
 
