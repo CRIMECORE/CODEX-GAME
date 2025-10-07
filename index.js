@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import http from 'http';
 import fs from 'fs';
 import { exec } from 'child_process';
+import axios from "axios";
 
 import { ensureEnvConfig } from './lib/env.js';
 import { optionalImport } from './lib/optionalImport.js';
@@ -6478,6 +6479,36 @@ bot.onText(/^\/pull$/i, async (msg) => {
 
     bot.sendMessage(chatId, `✅ Обновление завершено.\n<code>${stdout}</code>`, { parse_mode: 'HTML' });
   });
+});
+
+bot.onText(/\/invoiceto (\d+) (\d+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const fromId = msg.from.id;
+  const targetId = match[1];
+  const amount = parseInt(match[2], 10);
+
+  if (!isAdmin(fromId)) {
+      return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+  }
+
+  try {
+    const res = await axios.post(`https://api.telegram.org/bot${TOKEN}/createInvoiceLink`, {
+      title: "Добровольное пожертвование ❤️",
+      description: "🪙 Поддержи игру и получи за это CRIMECOINS",
+      payload: `gift_${targetId}_${Date.now()}`,
+      provider_token: "",
+      currency: "XTR",
+      prices: [{ label: "Звёзды", amount: amount }],
+    });
+
+    const link = res.data.result;
+
+    await bot.sendMessage(chatId, `Ссылка на оплату для ${targetId}:\n${link}`);
+    await bot.sendMessage(targetId, `➡️ Администратор выставил тебе счёт на ${amount}⭐️: ${link}`);
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    bot.sendMessage(chatId, "Ошибка при создании invoice 😔");
+  }
 });
 
 bot.onText(/^\/giveto\s+(\d+)\s+(.+)/i, async (msg, match) => {
