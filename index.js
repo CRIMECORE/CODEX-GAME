@@ -6498,7 +6498,7 @@ bot.onText(/\/invoiceto (\d+) (\d+)/, async (msg, match) => {
       payload: `gift_${targetId}_${Date.now()}`, // уникальный payload
       provider_token: "", // ДЛЯ STARS ОСТАВЛЯЕМ ПУСТЫМ
       currency: "XTR", // звёзды
-      prices: [{ label: "Звёзды", amount: amount * 1 }], // 1 звезда = 100 единиц
+      prices: [{ label: "Звёзды", amount: amount }], // 1 звезда = 100 единиц
     });
 
     const link = res.data.result;
