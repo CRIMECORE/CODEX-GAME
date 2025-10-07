@@ -6492,14 +6492,13 @@ bot.onText(/\/invoiceto (\d+) (\d+)/, async (msg, match) => {
   }
 
   try {
-    // создаём invoice ссылку (в звёздах)
     const res = await axios.post(`https://api.telegram.org/bot${TOKEN}/createInvoiceLink`, {
       title: "Добровольное пожертвование ❤️",
       description: "🪙 Поддержи игру и получи за это CRIMECOINS",
-      payload: `gift_${targetId}_${Date.now()}`, // уникальный payload
-      provider_token: "", // ДЛЯ STARS ОСТАВЛЯЕМ ПУСТЫМ
-      currency: "XTR", // звёзды
-      prices: [{ label: "Звёзды", amount: amount }], // 1 звезда = 100 единиц
+      payload: `gift_${targetId}_${Date.now()}`,
+      provider_token: "",
+      currency: "XTR",
+      prices: [{ label: "Звёзды", amount: amount }],
     });
 
     const link = res.data.result;
