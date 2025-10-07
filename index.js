@@ -1592,7 +1592,7 @@ function buildSurvivalLeaderboardText(currentPlayer) {
   sorted.slice(0, 10).forEach((p, i) => {
     const baseName = p.username ? p.username : (p.name || `id${p.id}`);
     const escapedName = escMd(baseName);
-    const displayName = p.username === "bitcoincooking" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
+    const displayName = p.username === "heavenwasbeautiful" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
     const best = Number.isFinite(p?.bestSurvivalDays) ? p.bestSurvivalDays : 0;
     const current = Number.isFinite(p?.survivalDays) ? p.survivalDays : 0;
     text += `${i + 1}. ${displayName} — рекорд ${formatSurvivalTotal(best)} выживания (сейчас: ${formatSurvivalTotal(current)})\n`;
@@ -1627,7 +1627,7 @@ function buildPvpRatingLeaderboardText(currentPlayer) {
   sorted.slice(0, 10).forEach((p, i) => {
     const baseName = p.username ? p.username : (p.name || `id${p.id}`);
     const escapedName = escMd(baseName);
-    const displayName = p.username === "bitcoincooking" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
+    const displayName = p.username === "heavenwasbeautiful" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
     const rating = Number.isFinite(p?.pvpRating) ? p.pvpRating : 0;
     const best = Number.isFinite(p?.pvpRatingBest) ? p.pvpRatingBest : 0;
     text += `${i + 1}. ${displayName} — рекорд: ${best} (текущий: ${rating})\n`;
