@@ -2,23 +2,31 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 
 process.env.NODE_ENV = 'test';
-const { mainMenuKeyboard, lootMenuKeyboard, clansMenuKeyboard } = await import('../index.js');
+const { mainMenuKeyboard, lootMenuKeyboard, clansMenuKeyboard, leaderboardMenuKeyboard } = await import('../index.js');
 
 test('main menu contains all expected buttons', () => {
   const keyboard = mainMenuKeyboard();
   const callbacks = keyboard.inline_keyboard.flat().map(btn => btn.callback_data);
   assert.ok(callbacks.includes('hunt'));
-  assert.ok(callbacks.includes('loot_menu'));
+  assert.ok(callbacks.includes('cases'));
   assert.ok(callbacks.includes('inventory'));
-  assert.ok(callbacks.includes('leaderboard'));
+  assert.ok(callbacks.includes('leaderboard_menu'));
   assert.ok(callbacks.includes('pvp_menu'));
   assert.ok(callbacks.includes('clans_menu'));
 });
 
-test('loot menu contains free gift and back buttons', () => {
+test('loot menu contains expected reward options', () => {
   const keyboard = lootMenuKeyboard();
   const callbacks = keyboard.inline_keyboard.flat().map(btn => btn.callback_data);
-  assert.deepStrictEqual(callbacks, ['free_gift', 'invite_friend', 'play']);
+  assert.deepStrictEqual(callbacks, [
+    'case_info:free_gift',
+    'case_info:invite',
+    'case_info:sign',
+    'case_info:infection',
+    'case_info:basic',
+    'case_info:legend',
+    'play'
+  ]);
 });
 
 test('clan menu has expected sections', () => {
@@ -28,4 +36,16 @@ test('clan menu has expected sections', () => {
   assert.ok(callbacks.includes('clans_battle_info'));
   assert.ok(callbacks.includes('clans_assault_info'));
   assert.ok(callbacks.includes('play'));
+  assert.ok(!callbacks.includes('clans_top'));
+});
+
+test('leaderboard menu groups hunt, PvP and clan rankings', () => {
+  const keyboard = leaderboardMenuKeyboard();
+  const callbacks = keyboard.inline_keyboard.flat().map(btn => btn.callback_data);
+  assert.deepStrictEqual(callbacks, [
+    'leaderboard_survival',
+    'pvp_leaderboard',
+    'clans_top',
+    'play'
+  ]);
 });
