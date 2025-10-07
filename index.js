@@ -6480,6 +6480,32 @@ bot.onText(/^\/pull$/i, async (msg) => {
   });
 });
 
+bot.onText(/\/invoiceto (\d+) (\d+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const targetId = match[1];
+  const amount = parseInt(match[2], 10); // количество звёзд
+
+  try {
+    // создаём invoice ссылку (в звёздах)
+    const res = await axios.post(`https://api.telegram.org/bot${TOKEN}/createInvoiceLink`, {
+      title: "crimecoins ✨",
+      description: "Поддержи канал звёздами и получи подарок 🎁",
+      payload: `gift_${targetId}_${Date.now()}`, // уникальный payload
+      provider_token: "", // ДЛЯ STARS ОСТАВЛЯЕМ ПУСТЫМ
+      currency: "XTR", // звёзды
+      prices: [{ label: "Звёзды", amount: amount * 100 }], // 1 звезда = 100 единиц
+    });
+
+    const link = res.data.result;
+
+    await bot.sendMessage(chatId, `Ссылка на оплату для ${targetId}:\n${link}`);
+    await bot.sendMessage(targetId, `✨ Тебе выставлен счёт на ${amount}⭐️: ${link}`);
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    bot.sendMessage(chatId, "Ошибка при создании invoice 😔");
+  }
+});
+
 // Add this with other command handlers
 bot.onText(/^\/giveto\s+(.+)/i, async (msg, match) => {
   const chatId = msg.chat.id;
