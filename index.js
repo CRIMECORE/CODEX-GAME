@@ -6480,22 +6480,18 @@ bot.onText(/^\/pull$/i, async (msg) => {
   });
 });
 
-// Add this with other command handlers
-bot.onText(/^\/giveto\s+(.+)/i, async (msg, match) => {
+bot.onText(/^\/giveto\s+(\d+)\s+(.+)/i, async (msg, match) => {
   const chatId = msg.chat.id;
   const fromId = msg.from.id;
+  
+  // Check if user is admin
+  if (!isAdmin(fromId)) {
+    return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+  }
 
-  // Проверка на админа
-  // if (!isAdmin(fromId)) {
-  //   return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
-  // }
-
-  const args = match[1].trim().split(/\s+/);
-  let targetId, itemName;
-
-  targetId = fromId;
-  itemName = args.join(" ");
-
+  const targetId = match[1];
+  const itemName = match[2].trim();
+  
   const targetPlayer = players[targetId];
   if (!targetPlayer) {
     return bot.sendMessage(chatId, "❌ Игрок не найден.");
@@ -6506,36 +6502,28 @@ bot.onText(/^\/giveto\s+(.+)/i, async (msg, match) => {
     return bot.sendMessage(chatId, `❌ Предмет "${itemName}" не найден.`);
   }
 
-  // Добавление предмета в инвентарь
-  const slot = item.kind || 'weapon'; // По умолчанию weapon
+  // Add item to player's inventory
+  const slot = item.kind || 'weapon'; // Default to weapon if kind not specified
   targetPlayer.inventory = targetPlayer.inventory || {};
   targetPlayer.inventory[slot] = { ...item };
   saveData();
-
-  if (targetId === fromId) {
-    bot.sendMessage(chatId, `✅ Вы выдали себе предмет "${item.name}".`);
-  } else {
-    bot.sendMessage(chatId, `✅ Предмет "${item.name}" выдан игроку ${targetPlayer.name || targetPlayer.username || targetId}.`);
-    bot.sendMessage(targetId, `🎁 Администратор выдал Вам предмет: ${item.name}`);
-  }
+  
+  bot.sendMessage(chatId, `✅ Предмет "${item.name}" выдан игроку ${targetPlayer.name || targetPlayer.username || targetId}.`);
+  bot.sendMessage(targetId, `🎁 Администратор выдал Вам предмет: ${item.name}`);
 });
 
-
-bot.onText(/^\/points\s+(.+)/i, async (msg, match) => {
+bot.onText(/^\/pointsto\s+(\d+)\s+(-?\d+)/i, async (msg, match) => {
   const chatId = msg.chat.id;
   const fromId = msg.from.id;
+  
+  // Check if user is admin
+  if (!isAdmin(fromId)) {
+    return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+  }
 
-  // Проверка на админа
-  // if (!isAdmin(fromId)) {
-  //   return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
-  // }
-
-  const args = match[1].trim().split(/\s+/);
-  let targetId, points;
-
-  targetId = fromId;
-  points = parseInt(args.join(" "), 10);
-
+  const targetId = match[1];
+  const points = parseInt(match[2], 10);
+  
   if (isNaN(points)) {
     return bot.sendMessage(chatId, "❌ Некорректное количество очков.");
   }
@@ -6547,19 +6535,14 @@ bot.onText(/^\/points\s+(.+)/i, async (msg, match) => {
 
   targetPlayer.infection = (targetPlayer.infection || 0) + points;
   saveData();
-
+  
   const action = points >= 0 ? "начислено" : "списано";
   const absPoints = Math.abs(points);
-
-  if (targetId === fromId) {
-    bot.sendMessage(chatId, `✅ Вам ${action} ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`);
-  } else {
-    bot.sendMessage(chatId, `✅ Игроку ${targetPlayer.name || targetPlayer.username || targetId} ${action} ${absPoints} очк(а/ов) заражения.`);
-    bot.sendMessage(targetId, points >= 0 
-      ? `🎉 Администратор начислил Вам ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
-      : `⚠️ Администратор списал с Вас ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
-    );
-  }
+  bot.sendMessage(chatId, `✅ Игроку ${targetPlayer.name || targetPlayer.username || targetId} ${action} ${absPoints} очк(а/ов) заражения.`);
+  bot.sendMessage(targetId, points >= 0 
+    ? `🎉 Администратор начислил Вам ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
+    : `⚠️ Администратор списал с Вас ${absPoints} очк(а/ов) заражения. Текущий баланс: ${targetPlayer.infection}`
+  );
 });
 
 bot.onText(/^\/crimecoins(?:@\w+)?\s+(.+)/i, async (msg, match) => {
