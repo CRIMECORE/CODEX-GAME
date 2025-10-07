@@ -2171,7 +2171,7 @@ const DANGER_EVENT_CHANCE = 0.1;
 const DANGER_EVENT_ITEM_CHANCE = 0.12;
 
 const SUPPLY_DROP_CHANCE = 0.12;
-const RESCUE_EVENT_CHANCE = 0.04;
+const RESCUE_EVENT_CHANCE = 0.01;
 const RESCUE_EVENT_IMAGE_URL = 'https://i.postimg.cc/hjWYNzsW/photo-2025-10-06-02-06-28.jpg';
 const HUNT_RARE_RAID_CHANCE = 0.05;
 const HUNT_RARE_RAID_IMAGE_URL = 'https://i.postimg.cc/CL0dDqSn/1600ec0e-5e77-4f6f-859f-a8dbbd7e3da6.png';
