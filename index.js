@@ -6486,11 +6486,15 @@ bot.onText(/\/invoiceto (\d+) (\d+)/, async (msg, match) => {
   const targetId = match[1];
   const amount = parseInt(match[2], 10); // количество звёзд
 
+    if (!isAdmin(fromId)) {
+       return bot.sendMessage(chatId, "⛔ У вас нет прав для выполнения этой команды.");
+    }
+
   try {
     // создаём invoice ссылку (в звёздах)
     const res = await axios.post(`https://api.telegram.org/bot${TOKEN}/createInvoiceLink`, {
-      title: "crimecoins ✨",
-      description: "Поддержи канал звёздами и получи подарок 🎁",
+      title: "Добровольное пожертвование ❤️",
+      description: "🪙 Поддержи игру и получи за это CRIMECOINS",
       payload: `gift_${targetId}_${Date.now()}`, // уникальный payload
       provider_token: "", // ДЛЯ STARS ОСТАВЛЯЕМ ПУСТЫМ
       currency: "XTR", // звёзды
@@ -6500,7 +6504,7 @@ bot.onText(/\/invoiceto (\d+) (\d+)/, async (msg, match) => {
     const link = res.data.result;
 
     await bot.sendMessage(chatId, `Ссылка на оплату для ${targetId}:\n${link}`);
-    await bot.sendMessage(targetId, `✨ Тебе выставлен счёт на ${amount}⭐️: ${link}`);
+    await bot.sendMessage(targetId, `➡️ Администратор выставил тебе счёт на ${amount}⭐️: ${link}`);
   } catch (err) {
     console.error(err.response?.data || err.message);
     bot.sendMessage(chatId, "Ошибка при создании invoice 😔");
