@@ -6511,6 +6511,27 @@ bot.onText(/\/invoiceto (\d+) (\d+)/, async (msg, match) => {
   }
 });
 
+bot.on("pre_checkout_query", async (ctx) => {
+  try {
+    const ok = true;
+
+    // Доп.проверки (необязательно, но полезно)
+    // например, сверить payload с «БД» и убедиться, что сумма совпадает
+    const pq = ctx.update.pre_checkout_query;
+    const rec = pq && invoices.get(pq.invoice_payload);
+    if (!rec) {
+      // если не нашли инвойс — можно отклонить оплату
+      // return ctx.answerPreCheckoutQuery(false, "Инвойс не найден. Попробуйте заново.");
+    }
+
+    await ctx.answerPreCheckoutQuery(ok);
+  } catch (e) {
+    console.error(e);
+    // в случае исключения попробуем отклонить
+    try { await ctx.answerPreCheckoutQuery(false, "Техническая ошибка. Попробуйте позже."); } catch {}
+  }
+});
+
 bot.onText(/^\/giveto\s+(\d+)\s+(.+)/i, async (msg, match) => {
   const chatId = msg.chat.id;
   const fromId = msg.from.id;
