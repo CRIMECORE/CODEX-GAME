@@ -6511,24 +6511,85 @@ bot.onText(/\/invoiceto (\d+) (\d+)/, async (msg, match) => {
   }
 });
 
-bot.on("pre_checkout_query", async (ctx) => {
-  try {
-    const ok = true;
+// ====== валидатор инвойса для pre_checkout_query ======
+function validatePreCheckout(pq, invoicesStore) {
+  // pq = ctx.update.pre_checkout_query
+  if (!pq) return { ok: false, error: "Техническая ошибка (нет данных запроса)." };
 
-    // Доп.проверки (необязательно, но полезно)
-    // например, сверить payload с «БД» и убедиться, что сумма совпадает
-    const pq = ctx.update.pre_checkout_query;
-    const rec = pq && invoices.get(pq.invoice_payload);
-    if (!rec) {
-      // если не нашли инвойс — можно отклонить оплату
-      // return ctx.answerPreCheckoutQuery(false, "Инвойс не найден. Попробуйте заново.");
+  const payload = pq.invoice_payload;
+  if (!payload) return { ok: false, error: "Инвойс без payload. Попробуйте заново." };
+
+  const rec = invoicesStore.get(payload);
+  if (!rec) return { ok: false, error: "Инвойс не найден или устарел. Создайте новый." };
+
+  // Валюта: только XTR для звёзд
+  if (pq.currency !== "XTR") {
+    return { ok: false, error: "Неверная валюта. Допустимо оплачивать только в звёздах." };
+  }
+
+  // Сумма: для XTR — целые звёзды, без *100
+  const requestedAmount = pq.total_amount; // целое число звёзд
+  if (typeof requestedAmount !== "number" || !Number.isInteger(requestedAmount)) {
+    return { ok: false, error: "Сумма указана неверно." };
+  }
+
+  // Сверяем с тем, что мы ожидали в инвойсе
+  if (requestedAmount !== rec.amount) {
+    return { ok: false, error: `Сумма изменилась (${requestedAmount}⭐). Обновите счёт.` };
+  }
+
+  // Бизнес-ограничения
+  if (requestedAmount < 5) {
+    return { ok: false, error: "Минимальная сумма — 5⭐." };
+  }
+  if (requestedAmount > 100000) {
+    return { ok: false, error: "Максимум 100 000⭐ за один счёт." };
+  }
+
+  // Пример: проверка статуса/срока или доступности товара
+  if (rec.cancelled) {
+    return { ok: false, error: "Этот счёт отменён. Создайте новый." };
+  }
+  if (rec.expiresAt && Date.now() > rec.expiresAt) {
+    return { ok: false, error: "Срок действия счёта истёк. Создайте новый." };
+  }
+  if (rec.requireStock && rec.stockLeft === 0) {
+    return { ok: false, error: "Нет в наличии. Попробуйте позже." };
+  }
+
+  return { ok: true, error: null };
+}
+
+// ====== ПОЛНЫЙ обработчик pre_checkout_query ======
+bot.on("pre_checkout_query", async (ctx) => {
+  const pq = ctx.update.pre_checkout_query;
+
+  try {
+    const result = validatePreCheckout(pq, invoices); // invoices: Map<payload, { amount, ... }>
+
+    if (!result.ok) {
+      // ВАЖНО: при отклонении обязательно передать false и текст
+      await ctx.answerPreCheckoutQuery(false, result.error || "Оплата отклонена.");
+      return;
     }
 
-    await ctx.answerPreCheckoutQuery(ok);
+    // (опционально) помечаем счёт как "в процессе" — защита от гонок
+    const rec = invoices.get(pq.invoice_payload);
+    if (rec) {
+      rec.inProgress = true;
+      invoices.set(pq.invoice_payload, rec);
+    }
+
+    // Разрешаем оплату
+    await ctx.answerPreCheckoutQuery(true);
   } catch (e) {
-    console.error(e);
-    // в случае исключения попробуем отклонить
-    try { await ctx.answerPreCheckoutQuery(false, "Техническая ошибка. Попробуйте позже."); } catch {}
+    console.error("pre_checkout_query error:", e);
+    // Если что-то упало — попытаться корректно отклонить
+    try {
+      await ctx.answerPreCheckoutQuery(false, "Техническая ошибка. Попробуйте позже.");
+    } catch (_) {
+      // игнор
+    }
   }
 });
 
