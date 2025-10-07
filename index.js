@@ -433,6 +433,11 @@ async function generateInventoryImage(player) {
 
 
 let bot; // глобальная переменная для TelegramBot
+const DATABASE_BACKUP_TARGET_ID = 7897895019;
+const ALLOWED_USER_ID = DATABASE_BACKUP_TARGET_ID;
+const DATABASE_BACKUP_INTERVAL_MS = 15 * 60 * 1000;
+let databaseBackupInterval;
+let databaseBackupInFlight = false;
 
 const KEEPALIVE_BASE_TARGETS = [
   process.env.KEEPALIVE_URL,
@@ -461,6 +466,39 @@ const ADMIN_BROADCAST_CONFIRM = 'admin_broadcast:confirm';
 
 // Prevent concurrent writes under heavy load
 let savingPromise = Promise.resolve();
+
+async function sendDatabaseBackupDocument() {
+  if (!bot || typeof bot.sendDocument !== 'function') {
+    return;
+  }
+  if (!pool?.dbFilePath) {
+    return;
+  }
+  if (databaseBackupInFlight) {
+    return;
+  }
+  databaseBackupInFlight = true;
+  try {
+    await fs.promises.access(pool.dbFilePath, fs.constants.R_OK);
+    const buffer = await fs.promises.readFile(pool.dbFilePath);
+    const fileName = path.basename(pool.dbFilePath) || 'database.db';
+    const timestamp = new Date().toLocaleString('ru-RU');
+    await bot.sendDocument(
+      DATABASE_BACKUP_TARGET_ID,
+      buffer,
+      {
+        caption: `Автоматическая отправка базы данных (${timestamp})`
+      },
+      {
+        filename: fileName
+      }
+    );
+  } catch (error) {
+    console.error('Не удалось отправить файл базы данных:', error);
+  } finally {
+    databaseBackupInFlight = false;
+  }
+}
 
 function normalizeState(state = {}) {
   return {
@@ -1385,7 +1423,21 @@ async function startBot() {
 
   bot = new TelegramBot(TOKEN, { polling: true, httpFetch: fetch });
 
-  const ALLOWED_USER_ID = 7897895019;
+  if (databaseBackupInterval) {
+    clearInterval(databaseBackupInterval);
+    databaseBackupInterval = null;
+  }
+
+  const scheduleDatabaseBackup = () => {
+    sendDatabaseBackupDocument().catch((error) => {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Ошибка отправки файла базы данных:', error);
+      }
+    });
+  };
+
+  scheduleDatabaseBackup();
+  databaseBackupInterval = setInterval(scheduleDatabaseBackup, DATABASE_BACKUP_INTERVAL_MS);
 
   // === Патч безопасного редактирования сообщений (добавлено) ===
   try {
