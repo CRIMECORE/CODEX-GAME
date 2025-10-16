@@ -1645,7 +1645,10 @@ function buildSurvivalLeaderboardText(currentPlayer) {
   sorted.slice(0, 10).forEach((p, i) => {
     const baseName = p.username ? p.username : (p.name || `id${p.id}`);
     const escapedName = escMd(baseName);
-    const displayName = p.username === "heavenwasbeautiful" ? `⚙️ Разработчик | ${escapedName}` : escapedName;
+    const displayName = 
+    p.username === "imfromcrimecorebitches" ? `⚙️ Разработчик | ${escapedName}` :
+    p.username === "GothHella" ? `👑 Владелец топ-1 клана | ${escapedName}` :
+    escapedName;
     const best = Number.isFinite(p?.bestSurvivalDays) ? p.bestSurvivalDays : 0;
     const current = Number.isFinite(p?.survivalDays) ? p.survivalDays : 0;
     text += `${i + 1}. ${displayName} — рекорд ${formatSurvivalTotal(best)} выживания (сейчас: ${formatSurvivalTotal(current)})\n`;
@@ -1704,7 +1707,10 @@ function buildClanTopText(player) {
   sorted.slice(0, 10).forEach((clan, index) => {
     const points = Number(clan?.points) || 0;
     const memberCount = Array.isArray(clan?.members) ? clan.members.length : 0;
-    text += `${index + 1}. ${escMd(clan.name)} — ${points} очков (${memberCount} участников)\n`;
+
+    const prefix = clan.name === "искренне я" ? "🏆 Топ-1 клан | " : "";
+
+    text += `${index + 1}. ${prefix}${escMd(clan.name)} — ${points} очков (${memberCount} участников)\n`;
   });
 
   const rankIndex = sorted.findIndex((clan) => player?.clanId && Number(clan.id) === Number(player.clanId));
@@ -1713,6 +1719,7 @@ function buildClanTopText(player) {
   text += `Твоё место: ${rankIndex >= 0 ? rankIndex + 1 : "—"} из ${sorted.length}`;
   return text;
 }
+
 
 // --- Config constants ---
 const PVP_REQUEST_TTL = 60 * 1000;
